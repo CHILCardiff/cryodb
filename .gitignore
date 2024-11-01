@@ -1,0 +1,4 @@
+reformat_missing_logfile.py
+get_from_cloudloop.py
+docker_data/*
+*.log
