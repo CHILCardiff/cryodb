@@ -1,0 +1,14 @@
+.. cryodb documentation master file, created by
+   sphinx-quickstart on Fri Nov  1 11:11:47 2024.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
+
+cryodb documentation
+=====================
+
+Project documentation for cryodb, creating and mantaining MariaDB database for output from Cryo* instruments.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
