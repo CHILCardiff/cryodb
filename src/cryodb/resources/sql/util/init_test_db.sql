@@ -5,4 +5,4 @@ GRANT ALL PRIVILEGES ON *.* TO 'chiltest';
 CREATE DATABASE cryodb_test;
 USE cryodb_test;
 
-SOURCE init_schema.sql;
+SOURCE ../init/init_schema.sql;
