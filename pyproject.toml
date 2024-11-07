@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryodb"
+version= "0.0.1"
+authors = [
+    {name = "Paul Biggs"},
+    {name = "Lisa Craw", email = "crawl@cardiff.ac.uk"},
+    {name = "Jono Hawkins", email = "hawkinsj22@cardiff.ac.uk"},
+    {name = "Mike Prior-Jones", email="prior-jonesm@cardiff.ac.uk"}   
+]
+description = "Module for storing CHIL packets in local and remote SQL databases."
+readme = "README.md"
+requires-python = ">=3.8" 
+dependencies = [
+    # toml if < 3.11
+    "toml; python_version<'3.11'",
+    "pyserial",
+    "pytest" 
+]
+
+[project.scripts]

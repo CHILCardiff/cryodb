@@ -12,3 +12,6 @@ Project documentation for cryodb, creating and mantaining MariaDB database for o
    :maxdepth: 2
    :caption: Contents:
 
+Development
+-----------
+Instructions for configuring the development environment for `cryodb` can be found :ref:`here<development_index>`
