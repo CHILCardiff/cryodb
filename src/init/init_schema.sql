@@ -20,14 +20,15 @@ CREATE TABLE instrument_table (
 );
 
 CREATE TABLE receiver_table (
-    receiver_id         TEXT NOT NULL UNIQUE PRIMARY KEY,
+    receiver_id         INTEGER NOT NULL PRIMARY KEY,
+    receiver_name       TEXT,
     receiver_type       TEXT,
     firmware_version    TEXT,
     manufacture_date    TEXT,
     manufacture_batch   TEXT,
     commission_date     TEXT,
-    notes               TEXT,
-)
+    notes               TEXT
+);
 
 CREATE TABLE campaign_table (
     campaign_id         INTEGER NOT NULL PRIMARY KEY,
@@ -58,7 +59,7 @@ CREATE TABLE receiver_deployment_table (
     deployment_id       INTEGER NOT NULL PRIMARY KEY,
     description         TEXT, -- i.e. location of borehole the receiver is near
     campaign_id         INTEGER,
-    receiver_id         TEXT,
+    receiver_id         INTEGER,
     antenna_type        TEXT,
     start_timestamp     TEXT,
     end_timestamp       TEXT,
@@ -72,7 +73,7 @@ CREATE TABLE receiver_deployment_table (
     latest_elevation    REAL,
     -- Assign foreign keys
     FOREIGN KEY (campaign_id) REFERENCES campaign_table(campaign_id),
-    FOREIGN KEY (receiver_id) REFERENCES receiver_id(receiver_id)
+    FOREIGN KEY (receiver_id) REFERENCES receiver_table(receiver_id)
 );
 
 -- CREATE TABLES
@@ -86,7 +87,6 @@ CREATE TABLE ingest_event_table (
 CREATE TABLE ingest_table (
     ingest_id           INTEGER NOT NULL PRIMARY KEY,
     ingest_event_id     INTEGER NOT NULL,
-    ingest_type
     raw                 BLOB NOT NULL,
     -- Assign foreign keys
     FOREIGN KEY (ingest_event_id) REFERENCES ingest_event_table(ingest_event_id)
@@ -124,6 +124,7 @@ CREATE TABLE ingest_manual_table(
 
 CREATE TABLE receiver_data_table (
     receiver_data_id    INTEGER NOT NULL PRIMARY KEY,
+    receiver_id         INTEGER NOT NULL,
     ingest_id           INTEGER NOT NULL,
     timestamp           TEXT NOT NULL,
     channel             INTEGER,
@@ -132,6 +133,7 @@ CREATE TABLE receiver_data_table (
     voltage_logger      REAL,
     receiver_type       TEXT,
     -- Assign foreign keys
+    FOREIGN KEY (receiver_id) REFERENCES receiver_table(receiver_id),
     FOREIGN KEY (ingest_id) REFERENCES ingest_table(ingest_id)
 );
 
