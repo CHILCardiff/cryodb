@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE TABLE process_table (
-    process_id          INTEGER NOT NULL PRIMARY KEY,
+    process_id          INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     type                TEXT, -- one-off or continuous
     timestamp_begin     TEXT,
     timestamp_end       TEXT,
@@ -9,20 +9,20 @@ CREATE TABLE process_table (
 );    
 
 CREATE TABLE instrument_table (
-    instrument_id       INTEGER NOT NULL PRIMARY KEY,
+    instrument_id       INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     type                TEXT,
     manufacture_date    TEXT,
     manufacture_batch   TEXT,
     commission_date     TEXT,
     notes               TEXT,
-    pressure_keller_min REAL,
-    pressure_keller_max REAL
+    pressure_keller_min REAL NOT NULL DEFAULT 0,
+    pressure_keller_max REAL NOT NULL
 );
 
 CREATE TABLE receiver_table (
-    receiver_id         INTEGER NOT NULL PRIMARY KEY,
-    receiver_name       TEXT,
-    receiver_type       TEXT,
+    receiver_id         INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    name       TEXT,
+    type       TEXT,
     firmware_version    TEXT,
     manufacture_date    TEXT,
     manufacture_batch   TEXT,
@@ -31,7 +31,7 @@ CREATE TABLE receiver_table (
 );
 
 CREATE TABLE campaign_table (
-    campaign_id         INTEGER NOT NULL PRIMARY KEY,
+    campaign_id         INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     name                TEXT NOT NULL, -- i.e. SLIDE2024, Donkey!
     description         TEXT,
     -- location fields
@@ -44,10 +44,10 @@ CREATE TABLE campaign_table (
 );
 
 CREATE TABLE instrument_deployment_table (
-    deployment_id       INTEGER NOT NULL PRIMARY KEY,
+    deployment_id       INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     description         TEXT, -- i.e. location of the moulin the instrument was deployed in 
-    campaign_id         INTEGER,
-    instrument_id       INTEGER,
+    campaign_id         INTEGER UNSIGNED,
+    instrument_id       INTEGER UNSIGNED,
     start_timestamp     TEXT,
     end_timestamp       TEXT,
     -- Assign foreign keys
@@ -56,10 +56,10 @@ CREATE TABLE instrument_deployment_table (
 );
 
 CREATE TABLE receiver_deployment_table (
-    deployment_id       INTEGER NOT NULL PRIMARY KEY,
+    deployment_id       INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     description         TEXT, -- i.e. location of borehole the receiver is near
-    campaign_id         INTEGER,
-    receiver_id         INTEGER,
+    campaign_id         INTEGER UNSIGNED,
+    receiver_id         INTEGER UNSIGNED,
     antenna_type        TEXT,
     start_timestamp     TEXT,
     end_timestamp       TEXT,
@@ -78,27 +78,27 @@ CREATE TABLE receiver_deployment_table (
 
 -- CREATE TABLES
 CREATE TABLE ingest_event_table (
-    ingest_event_id     INTEGER NOT NULL PRiMARY KEY,
-    ingest_type         TEXT NOT NULL, -- enum of [webhook, sdcard, local, other]
+    ingest_event_id     INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    ingest_type         TEXT NOT NULL, -- enum of [test, webhook, sdcard, local, manual]
     description         TEXT,
-    timestamp           TEXT    -- time started?
+    timestamp           TEXT NOT NULL    -- time started?
 );   
 
 CREATE TABLE ingest_table (
-    ingest_id           INTEGER NOT NULL PRIMARY KEY,
-    ingest_event_id     INTEGER NOT NULL,
+    ingest_id           INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    ingest_event_id     INTEGER UNSIGNED NOT NULL,
     raw                 BLOB NOT NULL,
     -- Assign foreign keys
     FOREIGN KEY (ingest_event_id) REFERENCES ingest_event_table(ingest_event_id)
 );
 
 CREATE TABLE ingest_lingomo_table (
-    ingest_id           INTEGER NOT NULL PRIMARY KEY,
+    ingest_id           INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     lingomo_id          TEXT, -- unique identifier of LingoMO obj from Cloudloop
     received_timestamp  TEXT,
     imei                TEXT,
     serial              TEXT, -- same as ThingID (i.e. RockBlock+216143)
-    momsn               INTEGER,
+    momsn               INTEGER UNSIGNED,
     latitude            REAL,
     longitude           REAL,
     accuracy            REAL,
@@ -109,39 +109,38 @@ CREATE TABLE ingest_lingomo_table (
 -- no SD ingest needed
 
 CREATE TABLE ingest_localpacket_table (
-    ingest_id           INTEGER NOT NULL PRIMARY KEY,
+    ingest_id           INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     local_timestamp     TEXT,
     -- Assign foreign keys
     FOREIGN KEY (ingest_id) REFERENCES ingest_table(ingest_id)
 );
 
 CREATE TABLE ingest_manual_table(
-    ingest_id           INTEGER NOT NULL PRIMARY KEY,
+    ingest_id           INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     metadata            TEXT,    
     -- Assign foreign keys
     FOREIGN KEY (ingest_id) REFERENCES ingest_table(ingest_id)
 ); -- this should be able to record unique metadata/notes for each ingest
 
 CREATE TABLE receiver_data_table (
-    receiver_data_id    INTEGER NOT NULL PRIMARY KEY,
-    receiver_id         INTEGER NOT NULL,
-    ingest_id           INTEGER NOT NULL,
+    receiver_data_id    INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    receiver_id         INTEGER UNSIGNED NOT NULL,
+    ingest_id           INTEGER UNSIGNED NOT NULL,
     timestamp           TEXT NOT NULL,
-    channel             INTEGER,
+    channel             INTEGER UNSIGNED,
     temperature_logger  REAL,
     pressure_logger     REAL,
     voltage_logger      REAL,
-    receiver_type       TEXT,
     -- Assign foreign keys
     FOREIGN KEY (receiver_id) REFERENCES receiver_table(receiver_id),
     FOREIGN KEY (ingest_id) REFERENCES ingest_table(ingest_id)
 );
 
 CREATE TABLE cryoegg_raw_table (
-    cryoegg_raw_id          INTEGER NOT NULL PRIMARY KEY,
-    receiver_data_id        INTEGER,
-    ingest_id               INTEGER,
-    instrument_id           INTEGER,
+    cryoegg_raw_id          INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    receiver_data_id        INTEGER UNSIGNED,
+    ingest_id               INTEGER UNSIGNED,
+    instrument_id           INTEGER UNSIGNED,
     conductivity_raw        INTEGER,
     temperature_pt1000_raw  INTEGER,
     pressure_raw            INTEGER,
@@ -157,10 +156,10 @@ CREATE TABLE cryoegg_raw_table (
 );
 
 CREATE TABLE cryowurst_raw_table (
-    cryowurst_raw_id        INTEGER NOT NULL PRIMARY KEY,
-    receiver_data_id        INTEGER,
-    ingest_id               INTEGER,
-    instrument_id           INTEGER,
+    cryowurst_raw_id        INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    receiver_data_id        INTEGER UNSIGNED,
+    ingest_id               INTEGER UNSIGNED,
+    instrument_id           INTEGER UNSIGNED,
     temperature_tmp117_raw  INTEGER,
     mag_x_raw               INTEGER,
     mag_y_raw               INTEGER,
@@ -187,10 +186,10 @@ CREATE TABLE cryowurst_raw_table (
 );
 
 CREATE TABLE hydrobean_raw_table (
-    hydrobean_raw_id    INTEGER NOT NULL PRIMARY KEY,
-    receiver_data_id    INTEGER,
-    ingest_id           INTEGER,
-    instrument_id       INTEGER,
+    hydrobean_raw_id    INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    receiver_data_id    INTEGER UNSIGNED,
+    ingest_id           INTEGER UNSIGNED,
+    instrument_id       INTEGER UNSIGNED,
     conductivity_raw    INTEGER,
     pressure_raw        INTEGER,
     temperature_raw     INTEGER,
@@ -205,9 +204,9 @@ CREATE TABLE hydrobean_raw_table (
 );
 
 CREATE TABLE cryoegg_data_table (
-    cryoegg_data_id     INTEGER NOT NULL PRIMARY KEY,
-    cryoegg_raw_id      INTEGER,
-    process_id          INTEGER,
+    cryoegg_data_id     INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    cryoegg_raw_id      INTEGER UNSIGNED,
+    process_id          INTEGER UNSIGNED,
     conductivity        REAL,
     temperature_pt1000  INT,
     pressure            REAL,
@@ -218,9 +217,9 @@ CREATE TABLE cryoegg_data_table (
 );
 
 CREATE TABLE cryowurst_data_table (
-    cryowurst_data_id   INTEGER NOT NULL PRIMARY KEY,
-    cryowurst_raw_id    INTEGER,
-    process_id          INTEGER,
+    cryowurst_data_id   INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    cryowurst_raw_id    INTEGER UNSIGNED,
+    process_id          INTEGER UNSIGNED,
     temperature_tmp117  REAL,
     mag_x               REAL,   
     mag_y               REAL,
@@ -242,9 +241,9 @@ CREATE TABLE cryowurst_data_table (
 );
 
 CREATE TABLE hydrobean_data_table (
-    hydrobean_data_id   INTEGER NOT NULL PRIMARY KEY,
-    hydrobean_raw_id    INTEGER,
-    process_id          INTEGER,
+    hydrobean_data_id   INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    hydrobean_raw_id    INTEGER UNSIGNED,
+    process_id          INTEGER UNSIGNED,
     conductivity        REAL,
     pressure            REAL,
     temperature         REAL,
@@ -254,8 +253,8 @@ CREATE TABLE hydrobean_data_table (
 );
 
 CREATE TABLE calibration_table (
-    calibration_id              INTEGER NOT NULL PRIMARY KEY,
-    instrument_id               INTEGER,
+    calibration_id              INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    instrument_id               INTEGER UNSIGNED,
     timestamp                   REAL,
     temperature_scale           REAL,
     temperature_offset          REAL,
@@ -307,8 +306,8 @@ CREATE TABLE calibration_table (
 );
 
 CREATE TABLE conductivity_calibration_table (
-    calibration_id  INTEGER NOT NULL PRIMARY KEY,
-    voltage         INTEGER,
+    calibration_id  INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
+    voltage         INTEGER UNSIGNED,
     conductivity    REAL,
     temperature     REAL,
     FOREIGN KEY (calibration_id) REFERENCES calibration_table(calibration_id)

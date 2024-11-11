@@ -1,10 +1,12 @@
 import cryodb
 
 # Libraries for import required for testing
-import mariadb
 import os
-import pytest
 import pathlib
+import pytest
+
+# import common test parameters
+from .config import *
 
 def test_connect():
     """Requires that localhost server running valid MariaDB 
@@ -18,12 +20,27 @@ def test_connect():
             path="invalid_file_path.db"
         )
 
+    with pytest.raises(cryodb.DatabaseNotFoundError):
+        db = cryodb.connect(
+            host="localhost",
+            password="cryoparty",
+            user="root"
+        )
+
+    # Connect with the correct db
+    db = cryodb.connect(
+        host="localhost",
+        password="cryoparty",
+        user="root",
+        database="cryodb_test"
+    )
+
     # Check that the output of db is a CryoDatabase object
     assert isinstance(db, cryodb.CryoDatabase)
 
 def test_initialise_sqlite_db():
     
-    test_path = pathlib.Path("tmpdb.db")
+    test_path = pathlib.Path(TEST_SQLITE_NAME)
     
     try:
         # Specify create if not exists flagabse
@@ -35,8 +52,15 @@ def test_initialise_sqlite_db():
         if test_path.exists():
             os.remove(test_path)
 
-
-    
 def test_validate():
 
-    assert False
+    # Requires connection to Docker database
+    db = cryodb.connect(
+        host="localhost",
+        password="cryoparty",
+        user="root",
+        database="cryodb_test"
+    )
+
+    assert db.validate()
+

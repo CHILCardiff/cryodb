@@ -1,3 +1,10 @@
-from .cryodatabase import CryoDatabase, connect
+from .cryodatabase import *
 
-__all__ = ["connect", "CryoDatabase"];
+__all__ = [
+    "connect", 
+    "CryoDatabase", 
+    "IngestType",
+    "IngestEvent",
+    "DatabaseNotFoundError", 
+    "InvalidDatabaseError"
+];
