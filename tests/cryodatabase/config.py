@@ -9,7 +9,7 @@ TEST_SQLITE_NAME = "db_test_sqlite.db"
 def db_sqlite():
     db = cryodb.connect(
         path=TEST_SQLITE_NAME,
-        create_if_not_found=True
+        sqlite_create_if_not_found=True
     ) 
     # Run tests
     yield db

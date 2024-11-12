@@ -20,7 +20,7 @@ def test_connect():
             path="invalid_file_path.db"
         )
 
-    with pytest.raises(cryodb.DatabaseNotFoundError):
+    with pytest.raises(cryodb.InvalidDatabaseError):
         db = cryodb.connect(
             host="localhost",
             password="cryoparty",
@@ -44,7 +44,7 @@ def test_initialise_sqlite_db():
     
     try:
         # Specify create if not exists flagabse
-        db = cryodb.connect(path=test_path, create_if_not_found=True)
+        db = cryodb.connect(path=test_path, sqlite_create_if_not_found=True)
         # Check that we've created an instance of CryoDatabase
         assert isinstance(db, cryodb.CryoDatabase)
         db.disconnect()

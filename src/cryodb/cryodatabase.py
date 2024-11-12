@@ -41,16 +41,39 @@ CRYODB_VALID_TABLES = [
 
 def connect(
     # SQLite flags
-    path=None,
-    create_if_not_found=False,
+    path : os.PathLike = None,
+    sqlite_create_if_not_found=False,
     # MariaDB flags
-    host="localhost",
-    user=None,
-    password=None,
-    database="cryodb",
-    port=3306
+    host : str = "localhost",
+    user : str =None,
+    password : str = None,
+    database : str = "cryodb",
+    port : int =3306
 ):
-    """swap between a SQLite and MariaDB connector depending on where we are connecting"""
+    """connect to a cryodb instance using sqlite3 or MariaDB
+
+    :param path: Path to a sqlite3 database file.
+    :type path: os.PathLike or None
+    :param sqlite_create_if_not_found: If True, connecting initialises the database at path. If False, a FileNotFoundError is raised.
+    :type sqlite_create_if_not_found: bool
+
+    :param host: Hostname for a MariaDB server
+    :type host: str
+    :param user: Username to use when connecting to the MariaDB server
+    :type user: str or None
+    :param password: Password to use when connecting to the MariaDB server
+    :type password: str or None
+    :param database: Name of the database to connect to at the MariaDB server
+    :type database: str
+    :param port: Port on which to connect to the MariaDB server (defaults to 3306).
+    :type port: int
+
+    :raise FileNotFoundError: if the sqlite3 path does not exist and the sqlite_create_if_not_found flag is set to False.
+
+    :return: a CryoDatabase wrapper object
+    :rtype: :py:class:CryoDatabase
+
+    """
 
     # default to SQLite if possible
     if path is not None:
@@ -62,7 +85,7 @@ def connect(
         if not path.exists():
             # we should either crash out because we don't want to over
             # write by default
-            if create_if_not_found == False: 
+            if sqlite_create_if_not_found == False: 
                 raise FileNotFoundError(f"Could not find {path}.")    
             # or we should initliase the database
             return CryoDatabase.initialise_sqlite3(path) 
@@ -92,28 +115,45 @@ def connect(
                 mariadb.connect(**maria_kwargs)
             )
         except mariadb.ProgrammingError:
-            raise DatabaseNotFoundError(f"Could not find database {database} on host {host}:{port}")
+            raise InvalidDatabaseError(f"Could not find database {database} on host {host}:{port}")
 
 class CryoDatabaseError(Exception):
+    """generic exception for CryoDatabase errors
+    """
     pass
 
 class InvalidIngestEventError(CryoDatabaseError):
+    """raised if the ingest event id is invalid or the ingest event type does not match the ingest method
+    """
     pass
 
 class InvalidDatabaseError(CryoDatabaseError):
+    """raised if no database is selected, it cannot be found on the host or it does not conform to the cryodb schema
+    """
     pass
 
-class DatabaseNotFoundError(CryoDatabaseError):
+class InvalidConnectionError(CryoDatabaseError):
+    """raised if the connection object in CryoDatabae is invalid
+    """
     pass
 
 class NoRecordInsertedError(CryoDatabaseError):
+    """raised if not record was inserted during the method call
+    """
     pass
 
 class RecordExistsError(CryoDatabaseError):
+    """raised if a record with the id already exists
+    """
     pass
 
 class IngestType(Enum):
-    """Utility class to describe different ingest events
+    """represents the different types of events associated with ingesting data to a cryodb database.
+
+    * **WEBHOOK** events are for automatic ingest of data in response to an external server input.
+    * **SDCARD** events correspond to offline input from SD card files.
+    * **LOCAL** events are used for packets received on the local machine, i.e. over a serial link.
+    * **MANUAL** events are used to cover scenarios where data is manually added to the database.
     """
     TEST    = 0
     WEBHOOK = 1
@@ -138,6 +178,11 @@ class IngestEvent:
 
 
 class CryoDatabase:
+    """interface class to interface with MariaDB or Sqlite databases
+    
+    :param connection:
+    :type connection: ``sqlite3.Connection`` or ``mariadb.Connection``
+    """
 
     STRFTIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -145,8 +190,6 @@ class CryoDatabase:
         self, 
         connection : Union[sqlite3.Connection, mariadb.Connection]
     ):
-        """Accepts a SQLite3 or MariaDB connection object to initialise
-        """
 
         # Store reference to connection locally
         self.connection = connection
@@ -162,17 +205,34 @@ class CryoDatabase:
         return isinstance(self.connection, mariadb.Connection)
 
     def cursor(self):
+        """returns the SQL cursor for the database
+
+        :return: cursor object
+        :rtype: ``sqlite3.Cursor`` or ``mariadb.Cursor`` object
+        """
         return self.connection.cursor()
     
     def commit(self):
+        """commits the current set of transactions to the database
+        """
         self.connection.commit()
     
     def disconnect(self):
+        """disconnect from the database
+
+        :raise InvalidConnectionError: if the connection instance is invalid
+        """
         if isinstance(self.connection,  Union[sqlite3.Connection, mariadb.Connection]):
             self.connection.close()
+        else:
+            raise InvalidConnectionError;
 
     def validate(self):
-        """Validates the database connected to the MariaDBConnector"""
+        """checks the database conforms to the ``cryodb`` schema
+        
+        :return: True, if the database is valid
+        :rtype: bool
+        :raise InvalidDatabaseError: if there is no database selected, or there is an error in the database schema"""
 
         # Step 1 - validate the connected database
         cursor = self.cursor()
@@ -206,8 +266,21 @@ class CryoDatabase:
         # if all is okay to here
         return True
 
-    def add_ingest_event(self, type : Union[str, int, IngestType],  description : str = "", timestamp : Union[NoneType, datetime.datetime] = None):
-        """creates a new ingest event, specifying type
+    def add_ingest_event(self, type : Union[str, int, IngestType],  description : str = "", timestamp : Union[NoneType, datetime.datetime] = None) -> int:
+        """registers a new ingest event in the database
+
+        :param type: the type of ingest event being registered
+        :type type: ``IngestType``
+        :param description: a description of the ingest event being registered
+        :type description: str
+        :param timestamp: the timestamp corresponding to the start of the ingest event
+        :type timestamp: ``datetime.datetime``
+
+        :raise ValueError: if type is not a valid IngestType
+        :raise NoRecordInsertedError: if no ingest event is created 
+
+        :return: the ingest event ID in `ingest_event_table`
+        :rtype: int
         """
         
         # creates new ingest event id
@@ -234,26 +307,37 @@ class CryoDatabase:
             "timestamp" : timestamp.strftime(CryoDatabase.STRFTIME_FORMAT)
         }
 
-        cursor = self.cursor()
-        if self.__is_mariadb():
-            cursor.execute(
-                "INSERT INTO `ingest_event_table` (`ingest_type`,`description`,`timestamp`) VALUES (?,?,?)", 
-                (parameters['type'], parameters['desc'], parameters['timestamp'])
-            )
-        elif self.__is_sqlite():
-            cursor.execute(
-                "INSERT INTO `ingest_event_table` (`ingest_type`,`description`,`timestamp`) VALUES (:type,:desc,:timestamp)", 
-                parameters
-            )
+        try:
+            cursor = self.cursor()
+            if self.__is_mariadb():
+                cursor.execute(
+                    "INSERT INTO `ingest_event_table` (`ingest_type`,`description`,`timestamp`) VALUES (?,?,?)", 
+                    (parameters['type'], parameters['desc'], parameters['timestamp'])
+                )
+            elif self.__is_sqlite():
+                cursor.execute(
+                    "INSERT INTO `ingest_event_table` (`ingest_type`,`description`,`timestamp`) VALUES (:type,:desc,:timestamp)", 
+                    parameters
+                )
+        except:
+            raise NoRecordInsertedError
 
         # Return last row id
         if cursor.lastrowid > 0:
             self.connection.commit()
+        else:
+            raise NoRecordInsertedError
 
         return cursor.lastrowid
 
-    def set_ingest_event(self, id=None):
-        """sets the current ingest event"""
+    def set_ingest_event(self, id : Union[int, NoneType] = None):
+        """sets the default ingest event associated with any ingest actions
+
+        :param id: id of the ingest event to be used as default
+        :type id: int
+        
+        :raise InvalidIngestEventError: if the id is not a valid row in ``ingest_event_table``.
+        """
         
         cursor = self.cursor();
         cursor.execute("SELECT COUNT(`ingest_event_id`) FROM `ingest_event_table` WHERE `ingest_event_id` = ?;", (id,))
@@ -263,7 +347,19 @@ class CryoDatabase:
         
         self.__ingest_event_id = id
 
-    def get_ingest_event(self, id=None):
+    def get_ingest_event(self, id : int = None):
+        """gets a Python object representation of an ingest event
+
+        If the ``id`` parameter is not provided, then the default ingest event for the instance of ``CryoDatabase`` is returned.
+
+        :param id: id of the ingest event
+        :type id: int
+
+        :return: ingest event associated with ``id``.
+        :rtype: IngestEvent
+
+        :raise ValueError: if the ingest_event_id is not valid 
+        """
 
         # If id is none, select for the current object
         id = self.__ingest_event_id
@@ -290,8 +386,9 @@ class CryoDatabase:
                 timestamp=datetime.datetime.strptime(results[0][3], CryoDatabase.STRFTIME_FORMAT)
             )
 
-    def ingest_lingomo(json):
+    def ingest_lingomo(self, json, ingest_event : Union[IngestEvent, int]):
         """
+        accepts a JSON LingoMO object and ingests
         1. takes json, parses into LingoMO packet
 
         2. In ingest_table: create new ingest_id, assign to current ingest_event_id, assign raw json
@@ -306,8 +403,14 @@ class CryoDatabase:
         """
         pass
 
-    def ingest_sdcard(self, path, description=None, ingest_event : Union[IngestEvent, int, NoneType] = None, receiver_id : Union[int, NoneType] = None):
+    def ingest_sdcard(
+        self, 
+        path, 
+        receiver_id : int,
+        ingest_event : Union[IngestEvent, int, NoneType] = None 
+    ):
         """
+
         1. create ingest event with path and description in `ingest_event_table` and store event id
 
         2. open file at path and for each SDPacket:
@@ -318,21 +421,30 @@ class CryoDatabase:
             2d. select correct table from instrument packet (either cryoegg/cryowurst_data_table) and insert data
         """
 
-        # If no ingest event is provided, then we will create a new one
         if ingest_event == None:
-            
+            # If no ingest event is provided, then we will create a new one
             event_id = self.add_ingest_event(
                 type        = IngestType.SDCARD,
                 description = str(path),
                 # Don't pass timestamp so we use the current time
             )
-        
+            # get the ingest_event
+            ingest_event = self.get_ingest_event(event_id)
+        elif isinstance(ingest_event, IngestEvent):
+            # Validate the IngestEvent object
+            ingest_event = self.get_ingest_event(ingest_event.id)
+        elif isinstance(ingest_event, int):
+            # Validate the ingest event id
+            ingest_event = self.get_ingest_event(ingest_event)
         else:
+            # otherwise, get the current ingest event
+            ingest_event = self.get_ingest_event()
 
-            # other
-            event_id = self.get_ingest_event().id
+        # Check that we are using an SD card ingest event
+        if ingest_event.type != IngestType.SDCARD:
+            raise InvalidIngestEventError("The ingest event #{event_id} type is not SDCARD")
 
-        # Open file in binary mode
+        # Open SD file in binary mode
         with open(path, "rb") as fh_sdcard:
 
             # Convert bytes to packets
@@ -340,7 +452,7 @@ class CryoDatabase:
 
             # Iterate over packets
             for packet in packets:
-                self.ingest_sdpacket(
+                self.__ingest_sdpacket_novalidation(
                     packet, 
                     event_id, 
                     receiver_id = receiver_id, 
@@ -350,22 +462,22 @@ class CryoDatabase:
             # Commit all changes
             self.commit()
 
-    def ingest_sdpacket(self, packet, ingest_event_id : int, receiver_id : Union[int, NoneType] = None, commit_on_complete=True):
-        """ingest a single SDPcaket (i.e. W1/W2/C0/C1 etc) style packet
-
-        1. create new `ingest_id` in `ingest_table`, assign hex-coded raw data to raw
-        2. get receiver packet and instrument/data packet
-        3. insert receiver data into `receiver_data_table`
-        4. select correct table from instrument packet (either cryoegg/cryowurst_data_table) and insert data
-        """
-
+    def __ingest_sdpacket_novalidation(
+        self, 
+        packet, 
+        receiver_id : int, 
+        ingest_event : IngestEvent, 
+        commit_on_complete=True
+    ):
+        
         # Get database cursor
         cursor = self.cursor()
 
         # Create an ingest id
         cursor.execute(
-            "INSERT INTO `ingest_table` (`ingest_event_id`, `raw`) VALUES (?,?);", (ingest_event_id, packet.raw)
+            "INSERT INTO `ingest_table` (`ingest_event_id`, `raw`) VALUES (?,?);", (ingest_event.id, packet.raw)
         )
+        # TODO: replace raw value so that we store hex not raw bytes?
 
         # and get the value
         ingest_id = cursor.lastrowid
@@ -382,7 +494,7 @@ class CryoDatabase:
             receiver_data_id = self.__insert_receiver_data(
                 receiver_data, 
                 ingest_id, 
-                receiver_id = None, 
+                receiver_id = receiver_id, 
                 commit_on_complete = False
             )
 
@@ -399,6 +511,43 @@ class CryoDatabase:
             self.commit()
 
         return receiver_data_id, instrument_data_id, instrument_type
+
+    def ingest_sdpacket(
+        self, 
+        packet : cryodecoder.SDPacket, 
+        receiver_id : int, 
+        ingest_event : Union[IngestEvent, int, NoneType] = None, 
+        commit_on_complete=True
+    ):
+        """ingest a single SDPcaket (i.e. W1/W2/C0/C1 etc) style packet
+
+        1. create new `ingest_id` in `ingest_table`, assign hex-coded raw data to raw
+        2. get receiver packet and instrument/data packet
+        3. insert receiver data into `receiver_data_table`
+        4. select correct table from instrument packet (either cryoegg/cryowurst_data_table) and insert data
+        """
+
+        if isinstance(ingest_event, IngestEvent):
+            # Validate the IngestEvent object
+            ingest_event = self.get_ingest_event(ingest_event.id)
+        elif isinstance(ingest_event, int):
+            # Validate the ingest event id
+            ingest_event = self.get_ingest_event(ingest_event)
+        else:
+            # otherwise, get the current ingest event
+            ingest_event = self.get_ingest_event()
+
+        # Check that we are using an SD card ingest event
+        if ingest_event.type != IngestType.SDCARD:
+            raise InvalidIngestEventError("The ingest event #{event_id} type is not SDCARD")
+
+        self.__ingest_sdpacket_novalidation(
+            packet,
+            ingest_event,
+            commit_on_complete,
+            receiver_id
+        )
+
 
     def __insert_receiver_data(self, packet : cryodecoder.ReceiverPacket, ingest_id, receiver_id : Union[NoneType, int] = None, commit_on_complete=True):
         
@@ -554,7 +703,7 @@ class CryoDatabase:
         commission_date : Union[datetime.datetime, NoneType] = None,
         notes : Union[str, NoneType] = None
     ):
-        """Adds a new instrument to the database
+        """Adds a new receiver to the database
         """
 
         # Validate and convert the instrument ID
@@ -563,7 +712,7 @@ class CryoDatabase:
                 receiver_id = int(receiver_id, 16)
             except ValueError:
                 raise ValueError("String-like receiver_id should be in hexadecimal format.")
-        elif receiver_id > 0:
+        elif isinstance(receiver_id, int) and receiver_id > 0:
             raise ValueError("receiver_id should be > 0")
         
         cursor = self.cursor()
@@ -574,9 +723,9 @@ class CryoDatabase:
             receiver_type,
             receiver_name,
             firmware_version,
-            manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT),
+            manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if manufacture_date is not None else None,
             manufacture_batch,
-            commission_date.strftime(CryoDatabase.STRFTIME_FORMAT),
+            commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if commission_date is not None else None,
             notes
         ))
 
@@ -588,6 +737,35 @@ class CryoDatabase:
 
         # Return instrument_id
         return cursor.lastrowid
+    
+    def get_receiver(self, receiver_id):
+        pass
+
+    def get_receivers(self):
+        
+        cursor = self.cursor()
+        # Request from database
+        cursor.execute("SELECT `receiver_id`, `name`, `type`, `firmware_version`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes` FROM `receiver_table`;")
+
+        # Iterate through results
+        receivers = []
+
+        for row in cursor.fetchall():
+            receivers.append(Receiver(
+                id = row[0],
+                type = ReceiverType(row[1]),
+                name = row[2],
+                firmware_version = row[3],
+                manufacture_date = datetime.datetime.strptime(row[4], CryoDatabase.STRFTIME_FORMAT) if row[4] is not None else None,
+                manufacture_batch = row[5],
+                commission_date = datetime.datetime.strptime(row[6], CryoDatabase.STRFTIME_FORMAT) if row[6] is not None else None,
+                notes = row[7]
+            ))
+
+        return receivers
+    
+    def get_instruments(self):
+        pass
     
     def add_campaign(self, 
         name : Union[str],
@@ -668,3 +846,37 @@ class CryoDatabase:
         cryo_db.validate()
 
         return cryo_db
+
+class ReceiverType(Enum):
+    TRIPOD = "Tripod"
+    PORTABLE = "Portable"
+
+@dataclass
+class Receiver:
+
+    id : int
+    type : ReceiverType
+    name : str
+    firmware_version : str = None
+    manufacture_date : datetime.datetime = None
+    manufacture_batch : str = None
+    commission_date : datetime.datetime = None
+    notes : str = None
+
+@dataclass
+class Instrument:
+
+    id : int
+    type : str
+    manufacture_date : datetime.datetime = None
+    manufacture_batch : str = None
+    commission_date : datetime.datetime = None
+    notes : str = None
+    pressure_keller_min : float = 0.0
+    pressure_keller_max : float = 0.0
+
+class CryoeggInstrument(Instrument):
+    pass
+
+class CyrowurstInstrument(Instrument):
+    pass
