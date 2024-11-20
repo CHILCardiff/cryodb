@@ -1,16 +1,23 @@
+# Import logger
+from .__init__ import cryodb_logger
+
 import abc
 import cryodecoder
 import datetime
+import hashlib
 import importlib.resources
+import logging
 import mariadb
 import os 
 import pathlib
+import re
+import secrets
 import sqlite3
 
 from dataclasses import dataclass
 from enum import Enum
 from types import NoneType
-from typing import Union
+from typing import Union, Iterable
 
 # Implement Connector as an abstract base class, its likely that the methods
 # invovled will be different for both the MariaDB and SQL connectors
@@ -38,6 +45,27 @@ CRYODB_VALID_TABLES = [
     "calibration_table",
     "cryoegg_raw_table"
 ]
+
+def sql_to_statements(path):
+
+    with open(path, "r") as fh:
+
+        script = fh.read()
+
+        # Compile regex
+        pat_statements = re.compile(r'([^;]+?);')
+        pat_comments = re.compile(r'--.+\n?')
+
+        # Match statements
+        raw_statements = pat_statements.findall(script)
+        new_statements = []
+
+        for statement in raw_statements:
+            
+            new_statements.append(pat_comments.sub("", statement).replace("\n", ""))
+
+        return new_statements
+            
 
 def connect(
     # SQLite flags
@@ -160,6 +188,15 @@ class IngestType(Enum):
     SDCARD  = 2
     LOCAL   = 3
     MANUAL  = 4
+
+class APIKeyType(Enum) : 
+    ADMIN   = "Admin"
+    USER    = "User"
+    SERVICE = "Service"
+
+class ReceiverType(Enum):
+    TRIPOD = "Tripod"
+    PORTABLE = "Portable"
 
 class InstrumentType(Enum):
     """Utility class to describe different instrument types
@@ -697,7 +734,6 @@ class CryoDatabase:
         receiver_id : Union[str, int, None] = None,
         receiver_type : Union[str, NoneType] = None,
         receiver_name : Union[str, NoneType] = None,
-        firmware_version : Union[str, NoneType] = None,
         manufacture_date : Union[datetime.datetime, NoneType] = None,
         manufacture_batch : Union[str, NoneType] = None,
         commission_date : Union[datetime.datetime, NoneType] = None,
@@ -715,14 +751,19 @@ class CryoDatabase:
         elif isinstance(receiver_id, int) and receiver_id > 0:
             raise ValueError("receiver_id should be > 0")
         
+        if isinstance(receiver_type, ReceiverType):
+            receiver_type = receiver_type.value
+        
+        if not isinstance(receiver_type, str):
+            raise ValueError("Invalid receiver_type")
+
         cursor = self.cursor()
         # Insert values
-        cursor.execute("INSERT INTO `receiver_table` (`receiver_id`, `name`, `type`, `firmware_version`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes`) VALUES (?,?,?,?,?,?,?,?)", 
+        cursor.execute("INSERT INTO `receiver_table` (`receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes`) VALUES (?,?,?,?,?,?,?,?)", 
         (
             receiver_id,
             receiver_type,
             receiver_name,
-            firmware_version,
             manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if manufacture_date is not None else None,
             manufacture_batch,
             commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if commission_date is not None else None,
@@ -745,7 +786,7 @@ class CryoDatabase:
         
         cursor = self.cursor()
         # Request from database
-        cursor.execute("SELECT `receiver_id`, `name`, `type`, `firmware_version`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes` FROM `receiver_table`;")
+        cursor.execute("SELECT `receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes` FROM `receiver_table`;")
 
         # Iterate through results
         receivers = []
@@ -755,7 +796,6 @@ class CryoDatabase:
                 id = row[0],
                 type = ReceiverType(row[1]),
                 name = row[2],
-                firmware_version = row[3],
                 manufacture_date = datetime.datetime.strptime(row[4], CryoDatabase.STRFTIME_FORMAT) if row[4] is not None else None,
                 manufacture_batch = row[5],
                 commission_date = datetime.datetime.strptime(row[6], CryoDatabase.STRFTIME_FORMAT) if row[6] is not None else None,
@@ -796,8 +836,8 @@ class CryoDatabase:
             latitude,
             longitude,
             elevation,
-            start_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT),
-            end_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT)
+            start_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if start_timestamp is not None else None,
+            end_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if end_timestamp is not None else None
         ))
 
         # Commit new instrument to database
@@ -809,8 +849,414 @@ class CryoDatabase:
         # Return instrument_id
         return cursor.lastrowid
         
+    def add_instrument_deployment(
+        self,
+        start_timestamp : datetime.datetime,
+        end_timestamp : datetime.datetime = None,
+        campaign_id : int = None,
+        instrument_id : int = None,
+        description : str = None
+    ):
+        
+        cursor = self.cursor()
+        try:
+            cursor.execute("INSERT INTO `instrument_deployment_table` (`description`, `campaign_id`, `instrument_id`, `start_timestamp`, `end_timestamp`) VALUES (?,?,?,?,?);",
+                (description,
+                campaign_id,
+                instrument_id,
+                start_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if start_timestamp is not None else None,
+                end_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if end_timestamp is not None else None
+                )
+            )
+        except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
+            raise NoRecordInsertedError
+        
+        self.commit()
+
+        if cursor.lastrowid == -1:
+            raise NoRecordInsertedError;
+
+        # Return instrument_id
+        return cursor.lastrowid
+    
+    def update_instrument_deployment(
+        self,
+        deployment_id : int,
+        start_timestamp : datetime.datetime = None,
+        end_timestamp : datetime.datetime = None,
+        campaign_id : int = None,
+        instrument_id : int = None,
+        description : str = None
+    ):
+        
+        cursor = self.cursor()
+
+        # Set parameter list
+        parameters = list()
+        query_string = list()
+
+        for key, value in {
+            "start_timestamp"   : start_timestamp,
+            "end_timestamp"     : end_timestamp,
+            "campaign_id"       : campaign_id,
+            "instrument_id"     : instrument_id,
+            "description"       : description
+        }.items():
+            if value is not None:
+                query_string.append(f"`{key}` = ?")
+                if "_timestamp" in key:
+                    parameters.append(value.strftime(CryoDatabase.STRFTIME_FORMAT))
+
+        if len(query_string) > 0:
+
+            # Add deployment id to parameters
+            parameters.append(deployment_id)
+
+            try:
+                query = f"UPDATE `instrument_deployment_table` SET {",".join(query_string)} WHERE `deployment_id` = ?;"
+                cursor.execute(query, parameters)
+            except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
+                raise NoRecordInsertedError
+            
+            self.commit()
+
+            if cursor.lastrowid == -1:
+                raise NoRecordInsertedError;
+
+            # Return instrument_id
+            return cursor.lastrowid
+        
+        else:
+            return deployment_id
+        
+    def add_receiver_deployment(
+        self,
+        start_timestamp : datetime.datetime,
+        end_timestamp : datetime.datetime = None,
+        campaign_id : int = None,
+        receiver_id : int = None,
+        description : str = None,
+        firmware_version : Union[str, NoneType] = None,
+        antenna_type : str = None,
+        service_timestamp : datetime.datetime = None,
+        original_latitude : Union[int, float] = None,
+        original_longitude : Union[int, float] = None,
+        original_elevation : Union[int, float] = None,
+        latest_latitude : Union[int, float] = None,
+        latest_longitude : Union[int, float] = None,
+        latest_elevation : Union[int, float] = None,
+    ):
+        
+        # Validate latitude and longitude
+        if (original_latitude is None) ^ (original_longitude is None):
+            raise ValueError("Both original_latitude and original_longitude must be provided.")
+        
+        if (latest_latitude is None) ^ (latest_longitude is None):
+            raise ValueError("Both latest_latitude and latest_longitude must be provided.")
+        
+        if latest_longitude is None and original_longitude is not None:
+            latest_longitude = original_longitude
+        
+        if latest_latitude is None and original_latitude is not None:
+            latest_latitude = original_latitude
+
+        # Validate elevation
+        if latest_elevation is None and original_elevation is not None:
+            latest_elevation = original_elevation
+        
+        cursor = self.cursor()
+        try:
+            cursor.execute("INSERT INTO `receiver_deployment_table` (`description`, `campaign_id`, `receiver_id`, `firmware_version`, `antenna_type`, `start_timestamp`, `end_timestamp`, `service_timestamp`, `original_latitude`, `original_longitude`, `original_elevation`, `latest_latitude`, `latest_longitude`, `latest_elevation`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
+            (
+                description,
+                campaign_id,
+                receiver_id,
+                firmware_version,
+                antenna_type,
+                start_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if start_timestamp is not None else None,
+                end_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if end_timestamp is not None else None,
+                service_timestamp.strftime(CryoDatabase.STRFTIME_FORMAT) if service_timestamp is not None else None,
+                original_latitude,
+                original_longitude,
+                original_elevation,
+                latest_latitude,
+                latest_longitude,
+                latest_elevation
+            ))
+        except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
+            raise NoRecordInsertedError
+        
+        self.commit()
+
+        if cursor.lastrowid == -1:
+            raise NoRecordInsertedError;
+
+        # Return instrument_id
+        return cursor.lastrowid
+    
+    def update_receiver_deployment(
+        self,
+        deployment_id : int,
+        firmware_version : Union[str, NoneType] = None,
+        start_timestamp : datetime.datetime = None,
+        end_timestamp : datetime.datetime = None,
+        campaign_id : int = None,
+        receiver_id : int = None,
+        description : str = None,
+        antenna_type : str = None,
+        service_timestamp : datetime.datetime = None,
+        latest_latitude : Union[int, float] = None,
+        latest_longitude : Union[int, float] = None,
+        latest_elevation : Union[int, float] = None,
+    ):
+        
+        cursor = self.cursor()
+
+        # Set parameter list
+        parameters = list()
+        query_string = list()
+
+        for key, value in {
+            "firmware_version" : firmware_version,
+            "start_timestamp" : start_timestamp,
+            "end_timestamp" : end_timestamp,
+            "campaign_id" : campaign_id,
+            "receiver_id" : receiver_id,
+            "description" : description,
+            "antenna_type" : antenna_type,
+            "service_timestamp" : service_timestamp,
+            "latest_latitude" : latest_latitude,
+            "latest_longitude" : latest_longitude,
+            "latest_elevation" : latest_elevation,
+        }.items():
+            if value is not None:
+                query_string.append(f"`{key}` = ?")
+                if "_timestamp" in key:
+                    parameters.append(value.strftime(CryoDatabase.STRFTIME_FORMAT))
+
+        if len(query_string) > 0:
+
+            # Add deployment id to parameters
+            parameters.append(deployment_id)
+
+            try:
+                cursor.execute(f"UPDATE `receiver_deployment_table` SET {",".join(query_string)} WHERE `deployment_id` = ?;", parameters
+                )
+            except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
+                raise NoRecordInsertedError
+            
+            self.commit()
+
+            if cursor.lastrowid == -1:
+                raise NoRecordInsertedError;
+
+            # Return instrument_id
+            return cursor.lastrowid
+        
+        else:
+            return deployment_id
+        
+    def add_api_key(
+        self, 
+        name : str, 
+        type : APIKeyType, 
+        email : str,
+        campaigns : Union[int, Iterable[int]] = None, 
+        can_select : bool = False, 
+        can_update : bool = False, 
+        can_insert : bool = False
+    ):
+        
+        if self.__is_sqlite():
+            raise TypeError("Cannot create API keys for Sqlite database.")
+        
+        # Check we have a local salt available in the environment variables
+        if not "CRYODB_SALT" in os.environ:
+            raise KeyError("Cannot find CRYODB_SALT key in environment variables - check server configuration")
+
+        if len(name) < 1:
+            raise ValueError("Cannot create API key with empty string.")
+        
+        # Generate random SHA256 digest
+        hashgen = hashlib.new("sha256")
+        hashgen.update(secrets.SystemRandom().randbytes(256))
+        key = hashgen.hexdigest()
+
+        # This is the user private key
+        cursor = self.cursor()
+        
+        cursor.execute(
+            "INSERT INTO `api_keys` (`name`, `type`, `hash`, `email`, `created`, `last_accessed`) VALUES (?,?,SHA2(CONCAT(?,?),256),?,?,?)",
+            (
+                name,
+                type.name,
+                key, os.environ["CRYODB_SALT"], # SQL concats these
+                email if email is not None else "",
+                datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
+                datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT)
+            )
+        )
+
+        if cursor.lastrowid == -1:
+            raise NoRecordInsertedError
+        
+        # Key api_key id
+        key_id = cursor.lastrowid
+
+        if type == APIKeyType.SERVICE or type == APIKeyType.USER:
+
+            try:
+                for campaign in campaigns:
+
+                    cursor.execute(
+                        "INSERT INTO `api_key_permissions` (`key_id`, `can_select`, `can_insert`, `can_update`, `campaign_id`) VALUES (?,?,?,?,?)",
+                        (
+                            key_id,
+                            1 if can_select else 0,
+                            1 if can_insert else 0,
+                            1 if can_update else 0,
+                            campaign 
+                        )
+                    )
+            except mariadb.IntegrityError as e:
+                
+                cursor.execute("DELETE FROM `api_keys` WHERE `key_id` = ?", (key_id,))
+                cursor.execute("DELETE FROM `api_key_permissions` WHERE `key_id` = ?", (key_id,))
+                raise NoRecordInsertedError
+
+        self.commit()
+                
+        return key
+    
+    def update_api_key(
+        self,
+        key,
+        campaign_id : int = None, 
+        can_select : bool = None, 
+        can_update : bool = None, 
+        can_insert : bool = None
+    ):
+
+        cursor = self.cursor()
+
+        # Define set string
+        if can_select is None and can_update is None and can_insert is None:
+            cryodb_logger.warning("No permissions changed.")
+            return
+        
+        set_fields = {
+            "can_select" : can_select,
+            "can_update" : can_update,
+            "can_insert" : can_insert 
+        }
+        set_string = []
+        for field, value in set_fields.items():
+
+            if value is None or not isinstance(value, bool):
+                continue
+
+            set_string.append(f"`{field}` = {1 if value else 0}")
+
+        if len(set_string) == 0:
+            raise ValueError("Invalid update arguments (can_select, can_update, can_insert must be bool)")
+
+        set_string = ",".join(set_string)
+
+        query_string = f"UPDATE `api_key_permissions` SET {set_string} WHERE `key_id` = (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1) AND `campaign_id` = ?;"
+
+        print(query_string)
+            
+        cursor.execute(
+            query_string,
+            (
+                key, os.environ["CRYODB_SALT"], campaign_id
+            )
+        )
+
+        self.commit()
+
+    def get_api_permissions(self, key):
+
+        # Get API key type
+        cursor = self.cursor()
+        cursor.execute(
+            "SELECT `key_id`, `type` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1", 
+            (
+                key, os.environ["CRYODB_SALT"]
+            )
+        )
+        key_id, type = cursor.fetchone()
+        type = APIKeyType[type]
+
+        # If it's an admin key then return all permissions
+        if type == APIKeyType.ADMIN:
+            
+            return "all"
+        
+        # Otherwise, 
+        else:
+            
+            permissions = {
+                "campaigns" : { 
+                    "select" : [],
+                    "update" : [],
+                    "insert" : []
+                },
+                "receivers" : { 
+                    "select" : [],
+                    "update" : [],
+                    "insert" : []
+                },
+                "instruments" : { 
+                    "select" : [],
+                    "update" : [],
+                    "insert" : []
+                }
+            }
+
+            # Get instrument permissions
+            cursor.execute("SELECT DISTINCT `instrument_id`, `can_select`, `can_update`, `can_insert` FROM `instrument_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256)) GROUP BY `instrument_id`;", (key, os.environ["CRYODB_SALT"]))
+
+            for id, select, update, insert in cursor.fetchall():
+                if select:
+                    permissions["instruments"]["select"].append(id)
+                if update:
+                    permissions["instruments"]["update"].append(id)
+                if insert:
+                    permissions["instruments"]["insert"].append(id)
+
+            cursor.execute("SELECT DISTINCT `receiver_id`, `can_select`, `can_update`, `can_insert` FROM `receiver_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256)) GROUP BY `receiver_id`;", (key, os.environ["CRYODB_SALT"]))
+
+            for id, select, update, insert in cursor.fetchall():
+                if select:
+                    permissions["receivers"]["select"].append(id)
+                if update:
+                    permissions["receivers"]["update"].append(id)
+                if insert:
+                    permissions["receivers"]["insert"].append(id)
+
+            cursor.execute("SELECT `campaign_id`, `can_select`, `can_insert`, `can_insert` FROM `api_key_permissions` WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256));", (key, os.environ["CRYODB_SALT"]))
+
+            for id, select, update, insert in cursor.fetchall():
+                if select:
+                    permissions["campaigns"]["select"].append(id)
+                if update:
+                    permissions["campaigns"]["update"].append(id)
+                if insert:
+                    permissions["campaigns"]["insert"].append(id)
+
+            return permissions
+            
+
+
+        
+    
+
     @staticmethod
     def initialise_sqlite3(path : Union[str, pathlib.Path]):
+
+        # Log
+        cryodb_logger.debug("Initialising sqlite3 database")
 
         if isinstance(path, str):
             path = pathlib.Path(path)
@@ -822,17 +1268,25 @@ class CryoDatabase:
         # Open connection to database
         db_object = sqlite3.connect(path)
 
-        resource_root = importlib.resources.files("cryodb.resources.sql.init")
-        for resource in resource_root.iterdir():
-            
-            # TODO check file extension is .sql/.SQL
-            # Read and execute each file
-            with open(resource, "r") as sql_file:
+        # Iterate through resources in order and execute
+        setup_scripts = (
+            "init_schema.sql", 
+            "init_metadata.sql"
+        )
+        
+        # Get path to scripts from module
+        init_scripts = importlib.resources.files("cryodb.resources.sql.init")
+        for script in setup_scripts:
+
+            with open(init_scripts/script, "r") as sql_file:
+
+                cryodb_logger.info(f"Running {script} on {path}")
 
                 script = sql_file.read()
                 # We need to modify and remove any instance of AUTO_INCREMENT
                 script = script.replace("AUTO_INCREMENT","")
                 script = script.replace("INTEGER UNSIGNED NOT NULL PRIMARY KEY", "INTEGER NOT NULL PRIMARY KEY")
+                script = script.replace("TINYINT","INTEGER")
                 
                 try: 
                     db_object.executescript(script)
@@ -841,15 +1295,11 @@ class CryoDatabase:
                     db_object.close()
                     os.remove(path)
                     raise e
-                
+                    
         cryo_db = CryoDatabase(db_object)
         cryo_db.validate()
 
         return cryo_db
-
-class ReceiverType(Enum):
-    TRIPOD = "Tripod"
-    PORTABLE = "Portable"
 
 @dataclass
 class Receiver:

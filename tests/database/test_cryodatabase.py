@@ -48,6 +48,7 @@ def test_initialise_sqlite_db():
         # Check that we've created an instance of CryoDatabase
         assert isinstance(db, cryodb.CryoDatabase)
         db.disconnect()
+        
     finally:
         if test_path.exists():
             os.remove(test_path)
