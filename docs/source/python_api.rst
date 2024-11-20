@@ -1,5 +1,5 @@
-``cryodb`` API
-==============
+``cryodb`` Python Module
+========================
 
 Functions 
 ---------

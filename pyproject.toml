@@ -22,3 +22,4 @@ dependencies = [
 ]
 
 [project.scripts]
+cryodb-server = "cryodb.server:run_cli_server"
