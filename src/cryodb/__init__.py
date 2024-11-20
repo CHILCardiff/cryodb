@@ -14,5 +14,6 @@ __all__ = [
     "IngestType",
     "IngestEvent",
     "DatabaseNotFoundError", 
-    "InvalidDatabaseError"
+    "InvalidDatabaseError",
+    "APIKeyType"
 ];

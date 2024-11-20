@@ -46,11 +46,11 @@ INSERT INTO `campaign_table`
 INSERT INTO `receiver_table` 
     (`receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`)
     VALUES
-    (10, 'Tripod Receiver 1', 'TRIPOD', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
-    (11, 'Tripod Receiver 2', 'TRIPOD', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
+    (10, 'Tripod Receiver 1', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
+    (11, 'Tripod Receiver 2', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
     -- European campaign receiers
-    (1, 'Portable Receiver 1', 'PORTABLE', '2019-06-10 00:00:00', 'Cardiff_19', '2019-06-10 00:00:00'),
-    (20, 'Tripod Receiver 3', 'TRIPOD', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00')
+    (1, 'Portable Receiver 1', 'portable', '2019-06-10 00:00:00', 'Cardiff_19', '2019-06-10 00:00:00'),
+    (20, 'Tripod Receiver 3', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00')
     ;
 
 INSERT INTO `instrument_table`

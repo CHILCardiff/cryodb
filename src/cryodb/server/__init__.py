@@ -8,6 +8,12 @@ import json
 # Import cryodb logger
 from ..__init__ import cryodb_logger
 
+RESPONSES = {
+    "invalid_api_key" : flask.Response(
+        "Invalid API key.", status = 401
+    )
+}
+
 def close_cryodb(e=None):
 
     db = g.pop("cryodb", None)
@@ -64,9 +70,62 @@ def create_app(test_config = None):
     cryodb_app.teardown_appcontext(close_cryodb)
 
     # Define API routes
-    cryodb_app.route("/")
-    def index():
-        response = flask.Response("", status=404)
+    @cryodb_app.route("/instrument/<type>/list", methods=["POST",])
+    def list_instruments(type):
+
+        # Validate API key 
+        api_key = flask.request.args.get("key")
+        if api_key is None:
+            return RESPONSES["invalid_api_key"]
+        
+        # Get database 
+        db = get_cryodb()
+        
+        # and permissions for key
+        api_type, permissions = db.get_api_permissions(api_key)
+        if api_type == None:
+            return RESPONSES["invalid_api_key"]
+
+        try:
+            type = cryodb.InstrumentType(type)
+        except ValueError as e:
+            return flask.Response(f"Bad request - type {api_type} invalid", status=400)
+        
+        instruments = []
+        # if the permissions are ADMIN then return all instruments
+        if api_type == cryodb.APIKeyType.ADMIN:
+            instruments = db.get_instruments(type=type)
+        # otherwise return only those with permission to view (select)
+        else: 
+            instruments = db.get_instruments(id=permissions["instruments"]["select"], type=type)
+
+        cryodb_logger.debug(f"Retrieved {len(instruments)} {type} instruments")
+
+        response = flask.Response(json.dumps([i.to_dict() for i in instruments]), status=200, mimetype="application/json")
+        return response
+
+    @cryodb_app.route("/receiver/list", methods=["POST",])
+    def list_receivers():
+        # Get database
+        db = get_cryodb()
+
+        # and permissions
+        api_type, permissions = db.get_api_permissions(flask.request.args.get("key"))
+        if api_type is None:
+            return RESPONSES["invalid_api_key"]
+        
+        receivers = []
+        if api_type == cryodb.APIKeyType.ADMIN:
+            receivers = db.get_receivers()
+        else:
+            receivers = db.get_receivers(id=permissions["receivers"]["select"])
+
+        cryodb_logger.debug(f"Retrieved {len(receivers)} receivers")
+
+        response = flask.Response(json.dumps([r.to_dict() for r in receivers]), status=200, mimetype="application/json")
+        return response
+        
+        
 
     return cryodb_app
 

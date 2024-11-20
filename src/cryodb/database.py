@@ -6,6 +6,7 @@ import cryodecoder
 import datetime
 import hashlib
 import importlib.resources
+import json
 import logging
 import mariadb
 import os 
@@ -190,19 +191,19 @@ class IngestType(Enum):
     MANUAL  = 4
 
 class APIKeyType(Enum) : 
-    ADMIN   = "Admin"
-    USER    = "User"
-    SERVICE = "Service"
+    ADMIN   = "admin"
+    USER    = "user"
+    SERVICE = "service"
 
 class ReceiverType(Enum):
-    TRIPOD = "Tripod"
-    PORTABLE = "Portable"
+    TRIPOD = "tripod"
+    PORTABLE = "portable"
 
 class InstrumentType(Enum):
     """Utility class to describe different instrument types
     """
-    Cryoegg     = "Cryoegg"
-    Cryowurst   = "Cryowurst"
+    Cryoegg     = "cryoegg"
+    Cryowurst   = "cryowurst"
 
 @dataclass
 class IngestEvent:
@@ -212,6 +213,61 @@ class IngestEvent:
     type            : IngestType
     description     : str
     timestamp       : datetime.datetime
+
+
+@dataclass
+class Receiver:
+
+    id : int
+    type : ReceiverType
+    name : str
+    manufacture_date : datetime.datetime = None
+    manufacture_batch : str = None
+    commission_date : datetime.datetime = None
+    notes : str = None
+
+    def to_dict(self):
+        return {
+            "id" : f"{self.id:x}",
+            "type" : self.type.value,
+            "name" : self.name if self.name is not None else "",
+            "manufacture_date" : self.manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.manufacture_date is not None else "",
+            "commission_date" : self.commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.commission_date is not None else "",
+            "manufacture_batch" : self.manufacture_batch,
+            "notes" : self.notes
+        }
+
+@dataclass
+class Instrument:
+
+    id : int
+    type : str
+    manufacture_date : datetime.datetime = None
+    manufacture_batch : str = None
+    commission_date : datetime.datetime = None
+    notes : str = None
+    pressure_keller_min : float = 0.0
+    pressure_keller_max : float = 0.0
+
+    def to_dict(self):
+        return {
+            "id" : f"{self.id:x}",
+            "type" : self.type,
+            "manufacture_date" : self.manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.manufacture_date is not None else "",
+            "commission_date" : self.commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.commission_date is not None else "",
+            "manufacture_batch" : self.manufacture_batch,
+            "pressure_keller_min" : self.pressure_keller_min,
+            "pressure_keller_max" : self.pressure_keller_max,
+            "notes" : self.notes
+        }
+
+class CryoeggInstrument(Instrument):
+    def __init__(self, **kwargs):
+        super().__init__(type="CRYOEGG", **kwargs)
+
+class CryowurstInstrument(Instrument):
+    def __init__(self, **kwargs):
+        super().__init__(type="CYROWURST", **kwargs)
 
 
 class CryoDatabase:
@@ -782,11 +838,22 @@ class CryoDatabase:
     def get_receiver(self, receiver_id):
         pass
 
-    def get_receivers(self):
+    def get_receivers(self, id : Union[int, str, Iterable[int], Iterable[str]] = None):
         
         cursor = self.cursor()
-        # Request from database
-        cursor.execute("SELECT `receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes` FROM `receiver_table`;")
+
+        # tidy up id argument
+        if id is None:
+            # Request from database
+            cursor.execute("SELECT * FROM `receiver_table`;")
+        else:
+            # Convert to list if a single argument
+            if isinstance(id, (int, str)):
+                id = list(id)
+            
+            parameter_string = ("?," * len(id))[0:-1] 
+            parameters = id
+            cursor.execute(f"SELECT * FROM `receiver_table` WHERE `receiver_id` IN ({parameter_string});", parameters)
 
         # Iterate through results
         receivers = []
@@ -794,18 +861,51 @@ class CryoDatabase:
         for row in cursor.fetchall():
             receivers.append(Receiver(
                 id = row[0],
-                type = ReceiverType(row[1]),
-                name = row[2],
-                manufacture_date = datetime.datetime.strptime(row[4], CryoDatabase.STRFTIME_FORMAT) if row[4] is not None else None,
-                manufacture_batch = row[5],
-                commission_date = datetime.datetime.strptime(row[6], CryoDatabase.STRFTIME_FORMAT) if row[6] is not None else None,
-                notes = row[7]
+                type = ReceiverType(row[2]),
+                name = row[1],
+                manufacture_date = datetime.datetime.strptime(row[3], CryoDatabase.STRFTIME_FORMAT) if row[3] is not None else None,
+                manufacture_batch = row[4],
+                commission_date = datetime.datetime.strptime(row[5], CryoDatabase.STRFTIME_FORMAT) if row[5] is not None else None,
+                notes = row[6]
             ))
 
         return receivers
     
-    def get_instruments(self):
-        pass
+    def get_instruments(self, id : Union[int, str, Iterable[int], Iterable[str]] = None, type : InstrumentType = None):
+        
+        # Get DB cursor
+        cursor = self.cursor()
+        
+        # If no ID is provided, then select all
+        if id == None:
+            if type == None:
+                cursor.execute("SELECT * FROM `instrument_table`;")
+            else:
+                cursor.execute("SELECT * FROM `instrument_table` WHERE `type`=?;", (type.value,))
+
+        else:
+            # Tidy up ID list
+            if isinstance(id, (str, int)):
+                id = list(id)
+                
+            # Query string
+            # create a string of ?s separated by commas for each id 
+            parameter_string = ("?," * len(id))[0:-1] 
+            parameters = id
+
+            if type == None:
+                cursor.execute(f"SELECT * FROM `instrument_table` WHERE `instrument_id` IN ({parameter_string});", parameters)
+            else:
+                parameters.append(type)
+                cursor.execute(f"SELECT * FROM `instrument_table` WHERE `instrument_id` IN ({parameter_string}) AND `type` = ?;", parameters)
+
+        # Process response
+        instruments = []
+        for row in cursor.fetchall():
+            instruments.append(CryoDatabase.instrument_from_row(row))
+        
+        return instruments
+
     
     def add_campaign(self, 
         name : Union[str],
@@ -1106,6 +1206,10 @@ class CryoDatabase:
         if type == APIKeyType.SERVICE or type == APIKeyType.USER:
 
             try:
+                # Convert single integer to list
+                if isinstance(campaigns, int):
+                    campaigns = [campaigns,]
+
                 for campaign in campaigns:
 
                     cursor.execute(
@@ -1185,13 +1289,19 @@ class CryoDatabase:
                 key, os.environ["CRYODB_SALT"]
             )
         )
-        key_id, type = cursor.fetchone()
+        key_result = cursor.fetchone()
+        
+        if key_result is None:
+            return None, None
+        
+        key_id, type = key_result
+
         type = APIKeyType[type]
 
         # If it's an admin key then return all permissions
         if type == APIKeyType.ADMIN:
             
-            return "all"
+            return type, None
         
         # Otherwise, 
         else:
@@ -1245,13 +1355,8 @@ class CryoDatabase:
                 if insert:
                     permissions["campaigns"]["insert"].append(id)
 
-            return permissions
-            
-
-
+            return type, permissions
         
-    
-
     @staticmethod
     def initialise_sqlite3(path : Union[str, pathlib.Path]):
 
@@ -1300,33 +1405,23 @@ class CryoDatabase:
         cryo_db.validate()
 
         return cryo_db
+    
+    @staticmethod
+    def instrument_from_row(row):
 
-@dataclass
-class Receiver:
-
-    id : int
-    type : ReceiverType
-    name : str
-    firmware_version : str = None
-    manufacture_date : datetime.datetime = None
-    manufacture_batch : str = None
-    commission_date : datetime.datetime = None
-    notes : str = None
-
-@dataclass
-class Instrument:
-
-    id : int
-    type : str
-    manufacture_date : datetime.datetime = None
-    manufacture_batch : str = None
-    commission_date : datetime.datetime = None
-    notes : str = None
-    pressure_keller_min : float = 0.0
-    pressure_keller_max : float = 0.0
-
-class CryoeggInstrument(Instrument):
-    pass
-
-class CyrowurstInstrument(Instrument):
-    pass
+        # Assume we have a full row
+        if row[1] == InstrumentType.Cryoegg.value:
+            class_type = CryoeggInstrument
+        elif row[1] == InstrumentType.Cryowurst.value:
+            class_type = CryowurstInstrument
+        
+        # Perform constructor
+        return class_type(
+            id = row[0],
+            manufacture_date = datetime.datetime.strptime(row[2], CryoDatabase.STRFTIME_FORMAT),
+            manufacture_batch = row[3],
+            commission_date = datetime.datetime.strptime(row[4], CryoDatabase.STRFTIME_FORMAT),
+            notes = row[5],
+            pressure_keller_min = row[6],
+            pressure_keller_max = row[7]
+        )

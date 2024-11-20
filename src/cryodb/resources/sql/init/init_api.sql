@@ -21,7 +21,7 @@ CREATE TABLE api_key_permissions (
     campaign_id INTEGER UNSIGNED NOT NULL,
     -- assign foreign keys
     FOREIGN KEY (key_id) REFERENCES api_keys(key_id),
-    FOREIGN KEY (campaign_id) REFERENCES campaign_table(campaign_id),
+    FOREIGN KEY (campaign_id) REFERENCES campaign_table(campaign_id)
 );
 
 ALTER TABLE `api_key_permissions` ADD CONSTRAINT `api_key_permissions` UNIQUE(`key_id`, `campaign_id`);

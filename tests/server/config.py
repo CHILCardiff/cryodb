@@ -5,7 +5,6 @@ import mariadb
 import pathlib
 import pytest
 
-
 @pytest.fixture
 def cryodb_server_app():
 
@@ -64,6 +63,24 @@ def cryodb_server_app():
             cursor.execute(statement)
 
         db.close()
+
+        # Update db object to use cryodb
+        db = cryodb.database.connect(
+            host = app.config["CRYODB_HOST"],
+            port = app.config["CRYODB_PORT"],
+            user = app.config["CRYODB_USER"],
+            password = app.config["CRYODB_PASSWORD"],
+            database = "flask_test",
+        )
+
+        # Setup test API keys
+        pytest.TEST_API_KEYS = {
+            "admin" : db.add_api_key("admin_key", cryodb.APIKeyType.ADMIN, "admin@email.com"),
+            "user" : db.add_api_key("user_key", cryodb.APIKeyType.USER, "user@email.com", campaigns=1, can_select=True, can_update=True),
+            "service" : db.add_api_key("service_key", cryodb.APIKeyType.SERVICE, "service@email.com", campaigns=[1,2], can_select=True)
+        }
+
+        db.disconnect()
 
     yield app
 
