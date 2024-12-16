@@ -2,6 +2,7 @@
 from .__init__ import cryodb_logger
 
 import abc
+import base64 
 import cryodecoder
 import datetime
 import hashlib
@@ -176,16 +177,31 @@ class RecordExistsError(CryoDatabaseError):
     """
     pass
 
+class InvalidAPIKeyError(CryoDatabaseError):
+    """raised if the API key provided is invalid
+    """
+    pass
+
+class InvalidLingoMOPacketError(CryoDatabaseError):
+    """raised if a LingoMO object is invalid
+    """
+    pass
+
+class NoReceiverFoundError(CryoDatabaseError):
+    """raised if there is no receiver found by IMEI number
+    """
+
+
 class IngestType(Enum):
     """represents the different types of events associated with ingesting data to a cryodb database.
 
-    * **WEBHOOK** events are for automatic ingest of data in response to an external server input.
+    * **LINGOMO** events are for automatic ingest of data in response to an external server input.
     * **SDCARD** events correspond to offline input from SD card files.
     * **LOCAL** events are used for packets received on the local machine, i.e. over a serial link.
     * **MANUAL** events are used to cover scenarios where data is manually added to the database.
     """
     TEST    = 0
-    WEBHOOK = 1
+    LINGOMO = 1
     SDCARD  = 2
     LOCAL   = 3
     MANUAL  = 4
@@ -194,6 +210,7 @@ class APIKeyType(Enum) :
     ADMIN   = "admin"
     USER    = "user"
     SERVICE = "service"
+    IP      = "ip"
 
 class ReceiverType(Enum):
     TRIPOD = "tripod"
@@ -221,6 +238,7 @@ class Receiver:
     id : int
     type : ReceiverType
     name : str
+    imei : str
     manufacture_date : datetime.datetime = None
     manufacture_batch : str = None
     commission_date : datetime.datetime = None
@@ -231,6 +249,7 @@ class Receiver:
             "id" : f"{self.id:x}",
             "type" : self.type.value,
             "name" : self.name if self.name is not None else "",
+            "imei" : f"{self.imei:016d}", 
             "manufacture_date" : self.manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.manufacture_date is not None else "",
             "commission_date" : self.commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.commission_date is not None else "",
             "manufacture_batch" : self.manufacture_batch,
@@ -268,7 +287,6 @@ class CryoeggInstrument(Instrument):
 class CryowurstInstrument(Instrument):
     def __init__(self, **kwargs):
         super().__init__(type="CYROWURST", **kwargs)
-
 
 class CryoDatabase:
     """interface class to interface with MariaDB or Sqlite databases
@@ -479,7 +497,7 @@ class CryoDatabase:
                 timestamp=datetime.datetime.strptime(results[0][3], CryoDatabase.STRFTIME_FORMAT)
             )
 
-    def ingest_lingomo(self, json, ingest_event : Union[IngestEvent, int]):
+    def ingest_lingomo(self, json_obj : str, ingest_event : Union[IngestEvent, int]):
         """
         accepts a JSON LingoMO object and ingests
         1. takes json, parses into LingoMO packet
@@ -493,7 +511,114 @@ class CryoDatabase:
             4a. for each packet, get receiver packet and instrument/data packet
             4b. insert receiver data into `receiver_data_table`
             4c. select correct table from instrument packet (either cryoegg/cryowurst_data_table) and insert data
+
+        :raise json.decoder.JSONDecodeError: raised if there is an error decoding the LingoMO packet.
         """
+    
+        # Try decoding
+        lingomo_packet = json.loads(json_obj)
+
+        #TODO: Perform some validation on the LingoMO object
+        if not "id" in lingomo_packet or not "receivedAt" in lingomo_packet:
+            raise InvalidLingoMOPacketError("Invalid LingoMO packet.")
+
+        # Now we can interrogate the ingest event
+        if isinstance(ingest_event, int):
+            ingest_event = self.get_ingest_event(ingest_event)
+
+        # And check that the event is valid 
+        if ingest_event.type != IngestType.LINGOMO: 
+            raise ValueError("Invalid ingest event - check LingoMO ingest event type")
+    
+        # Begin transaction
+        self.connection.begin()
+        cursor = self.cursor()
+
+        ### STEP 2 - Create new ingest row in ingest_table
+        cursor.execute(
+            "INSERT INTO `ingest_table` (`ingest_event_id`, `raw`) VALUES (?,?);",
+            (ingest_event.id, json_obj)
+        )
+
+        # Get ingest_id
+        ingest_id = cursor.lastrowid
+        # and if its less than 1, we haven't inserted a record correctly
+        if ingest_id < 1:
+            raise NoRecordInsertedError
+        
+        ### STEP 3 - Create new row in LingoMO metadata table
+        imei = None
+
+        try:
+
+            # Create receivedAt timestamp
+            received_at = datetime.datetime(
+                lingomo_packet["receivedAt"]["year"],
+                lingomo_packet["receivedAt"]["month"],
+                lingomo_packet["receivedAt"]["day"],
+                lingomo_packet["receivedAt"]["hour"],
+                lingomo_packet["receivedAt"]["minute"],
+                lingomo_packet["receivedAt"]["second"]
+            )
+
+            # Get IMEI from LingoMO packet
+            imei = lingomo_packet["identity"]["hardware"]["imei"]
+
+            cursor.execute(
+                "INSERT INTO `ingest_lingomo_table` (`ingest_id`, `lingomo_id`, `received_timestamp`, `imei`, `serial`, `momsn`, `latitude`, `longitude`, `accuracy`) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    ingest_id, 
+                    lingomo_packet["id"],
+                    received_at,
+                    imei,
+                    lingomo_packet["identity"]["hardware"]["serial"],
+                    lingomo_packet["sbd"]["momsn"],
+                    lingomo_packet["location"]["latitude"],
+                    lingomo_packet["location"]["longitude"],
+                    lingomo_packet["location"]["cep"]
+                )
+            )
+
+        except KeyError as e: 
+            raise InvalidLingoMOPacketError("Invalid LingoMO packet.")
+        
+        if cursor.lastrowid != ingest_id:
+            raise NoRecordInsertedError("Failed to insert ingest_lingomo row.")
+        
+        ### STEP 4
+
+        # Ideally we would encode the receiver_id in the transmitted packet to
+        # avoid any ambiguity but instead we'll have to make do with having 
+        # a record of the IMEI/Serial number for each receiver
+        if imei == None:
+            receiver_id = None
+        else:
+            cursor.execute("SELECT `receiver_id` FROM `receiver_table` WHERE `imei_number` = ? LIMIT 1;", (imei,))
+
+            if cursor.rowcount == 0:
+                receiver_id = None
+            else:
+                receiver_id = cursor.fetchone()[0]
+
+        if receiver_id == None:
+            #TODO: we should log that there is no receiver found here
+            raise NoReceiverFoundError()
+    
+        # 4a. for each packet, get receiver packet and instrument/data packet
+        #     4b. insert receiver data into `receiver_data_table`
+        #     4c. select correct table from instrument packet (either cryoegg/cryowurst_data_table) and insert data
+        payload = base64.b64decode(lingomo_packet["message"])
+
+        # Convert payload to SDPackets
+        packets = cryodecoder.bytes_to_packets(payload)
+
+        # Iterate over packets found in the payload
+        for packet in packets:
+            self.ingest_sdpacket(packet, receiver_id, ingest_event.id, commmit_on_complete=False)
+
+        # end transaction
+        self.commit()
+
         pass
 
     def ingest_sdcard(
@@ -862,11 +987,12 @@ class CryoDatabase:
             receivers.append(Receiver(
                 id = row[0],
                 type = ReceiverType(row[2]),
-                name = row[1],
-                manufacture_date = datetime.datetime.strptime(row[3], CryoDatabase.STRFTIME_FORMAT) if row[3] is not None else None,
-                manufacture_batch = row[4],
-                commission_date = datetime.datetime.strptime(row[5], CryoDatabase.STRFTIME_FORMAT) if row[5] is not None else None,
-                notes = row[6]
+                name = row[1] if isinstance(row[1], str) else "",
+                imei = row[3] if isinstance(row[3], str) else "",
+                manufacture_date = datetime.datetime.strptime(row[4], CryoDatabase.STRFTIME_FORMAT) if row[4] is not None else None,
+                manufacture_batch = row[5],
+                commission_date = datetime.datetime.strptime(row[6], CryoDatabase.STRFTIME_FORMAT) if row[6] is not None else None,
+                notes = row[7]
             ))
 
         return receivers
@@ -1279,16 +1405,31 @@ class CryoDatabase:
 
         self.commit()
 
-    def get_api_permissions(self, key):
+    def get_api_permissions(self, key=None, ip=None):
 
-        # Get API key type
         cursor = self.cursor()
-        cursor.execute(
-            "SELECT `key_id`, `type` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1", 
-            (
-                key, os.environ["CRYODB_SALT"]
+        
+        # If we have a provided, check this
+        if key != None:
+            cursor.execute(
+                "SELECT `key_id`, `type` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1", 
+                (
+                    key, os.environ["CRYODB_SALT"]
+                )
             )
-        )
+
+        # otherwise lookup the IP address
+        elif ip != None:
+            cursor.execute(
+                "SELECT `key_id`, `type` FROM `api_keys` WHERE `ip` = ? AND `type` = `ip` LIMIT 1",
+                (ip,)
+            )
+
+        # if neither a key or IP address were pas
+        else:
+            raise ValueError("Require API key or IP address to get api permissions.")
+        
+        # Get API key type
         key_result = cursor.fetchone()
         
         if key_result is None:

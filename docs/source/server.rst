@@ -49,6 +49,9 @@ An outline of the API hierarchy is given below::
             instruments/
             receivers/
 
+    ingest/
+        lingomo/
+
 Flask and WSGI configuration
 ----------------------------
 The ``cryodb`` server is implemented using the Flask WSGI web framework. Following the documentation available `here <https://flask.palletsprojects.com/en/stable/deploying/mod_wsgi/>`_, it can be run using the ``mod_wsgi-express`` command from the Python `mod-wsgi <https://pypi.org/project/mod-wsgi/>`_ module.

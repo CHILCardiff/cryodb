@@ -24,6 +24,7 @@ CREATE TABLE receiver_table (
     receiver_id         INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
     name       TEXT NOT NULL, 
     type       TEXT NOT NULL,
+    imei_number         TEXT, -- associated with the Iridium receiver
     manufacture_date    TEXT,
     manufacture_batch   TEXT,
     commission_date     TEXT,
@@ -80,7 +81,8 @@ CREATE TABLE receiver_deployment_table (
 -- CREATE TABLES
 CREATE TABLE ingest_event_table (
     ingest_event_id     INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT DEFAULT NULL,
-    ingest_type         TEXT NOT NULL, -- enum of [test, webhook, sdcard, local, manual]
+    ingest_type         TEXT NOT NULL, -- enum of [test, lingomo, sdcard, local, manual]
+    account_id          TEXT, -- accountId in 'identity' of LingoMO messages
     description         TEXT,
     timestamp           TEXT NOT NULL    -- time started?
 );   
