@@ -9,7 +9,7 @@ def test_get_receivers(cryodb_server_client, role):
     """test getting receivers from the cryodb server
     """
 
-    response = cryodb_server_client.post(
+    response = cryodb_server_client.get(
         f"receiver/list",
         query_string = {
             "key" : pytest.TEST_API_KEYS[role]
