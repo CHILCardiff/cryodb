@@ -44,13 +44,13 @@ INSERT INTO `campaign_table`
     ;
 
 INSERT INTO `receiver_table` 
-    (`receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`)
+    (`receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`, `imei_number`)
     VALUES
-    (10, 'Tripod Receiver 1', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
-    (11, 'Tripod Receiver 2', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00'),
+    (10, 'Tripod Receiver 1', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00', '300534064799170'),
+    (11, 'Tripod Receiver 2', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00', NULL),
     -- European campaign receiers
-    (1, 'Portable Receiver 1', 'portable', '2019-06-10 00:00:00', 'Cardiff_19', '2019-06-10 00:00:00'),
-    (20, 'Tripod Receiver 3', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00')
+    (1, 'Portable Receiver 1', 'portable', '2019-06-10 00:00:00', 'Cardiff_19', '2019-06-10 00:00:00', NULL),
+    (20, 'Tripod Receiver 3', 'tripod', '2022-09-12 00:00:00', 'JJ_2022', '2022-09-12 00:00:00', NULL)
     ;
 
 INSERT INTO `instrument_table`
@@ -58,8 +58,8 @@ INSERT INTO `instrument_table`
     VALUES
     (3466133505, 'cryoegg', '2019-05-30 00:00:00', 'CE2019', '2019-05-30 00:00:00', 'Cryoegg with eyelet for testing', 0.0, 250.0),
     (3466133506, 'cryoegg', '2023-06-05 00:00:00', 'CE2023', '2023-06-05 00:00:00', 'Revised 23 Cryoegg for long term deployment', 0.0, 100.0),
-    (3466133507, 'cryoegg', '2023-06-05 00:00:00', 'CE2023', '2023-06-05 00:00:00', 'Revised 23 Cryoegg for long term deployment', 0.0, 100.0),
-    (3466133508, 'cryoegg', '2023-06-05 00:00:00', 'CE2023', '2023-06-05 00:00:00', 'Revised 23 Cryoegg for long term deployment', 0.0, 100.0),
+    (3458465824, 'cryoegg', '2023-06-05 00:00:00', 'CE2023', '2023-06-05 00:00:00', 'Revised 23 Cryoegg for long term deployment', 0.0, 100.0),
+    (3458465816, 'cryoegg', '2023-06-05 00:00:00', 'CE2023', '2023-06-05 00:00:00', 'Revised 23 Cryoegg for long term deployment', 0.0, 100.0),
     (3482910721, 'cryowurst', '2020-05-19 00:00:00', 'CW2020', '2020-05-19 00:00:00', 'Borehole cryowurst for European deployment with pressure sensor', 0.0, 250.0),
     (3482910722, 'cryowurst', '2020-05-19 00:00:00', 'CW2020', '2020-05-19 00:00:00', 'Borehole cryowurst for European deployment without pressure sensor', 0.0, 0.0),
     (3482910723, 'cryowurst', '2020-05-19 00:00:00', 'CW2020', '2020-05-19 00:00:00', 'Borehole cryowurst for European deployment without pressure sensor', 0.0, 0.0),
@@ -71,8 +71,8 @@ INSERT INTO `instrument_deployment_table`
     VALUES
     ('Test deployment of CE990001', 1, 3466133505, '2024-06-05 00:00:00', '2024-06-15 00:00:00'),
     ('Long term deployment of CE990002 at receiver 10', 1, 3466133506, '2024-06-07 13:33:00', NULL),
-    ('Long term deployment of CE990003 at receiver 10', 1, 3466133507, '2024-06-07 12:47:00', NULL),
-    ('Deployment of CE990004 at receiver 11', 1, 3466133508, '2024-06-07 15:21:00', '2024-06-11 10:54:00'),
+    ('Long term deployment of CE990003 at receiver 10', 1, 3458465824, '2024-06-07 12:47:00', NULL),
+    ('Deployment of CE990004 at receiver 11', 1, 3458465816, '2024-06-07 15:21:00', '2024-06-11 10:54:00'),
     ('Deployment of CF990010 at receiver 11', 1, 3482910736, '2024-06-11 14:03:00', NULL),
     -- European deployments
     ('Test deployment of CE990001 during borehole drilling', 2, 3466133505, '2022-03-21 11:13:00', '2022-03-22 12:52:00'),

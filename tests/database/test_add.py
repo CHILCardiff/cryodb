@@ -52,6 +52,44 @@ def test_add_instrument(db_mariadb, db_sqlite):
     __test_add_instrument(db_mariadb)
     __test_add_instrument(db_sqlite)
 
+def __test_add_receiver(db : cryodb.CryoDatabase):
+
+    receiver_id_hex = "123"
+    receiver_id_dec = int(receiver_id_hex, 16)
+
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM `receiver_table` WHERE `receiver_id` = ?", (receiver_id_dec,))
+
+    db.commit()
+
+    receiver_id = db.add_receiver(
+        receiver_id = receiver_id_hex,
+        receiver_type = cryodb.ReceiverType.TRIPOD,
+        receiver_name = "Test Receiver"
+    )
+
+    assert receiver_id_dec == receiver_id
+
+    cursor.execute("SELECT * FROM `receiver_table` WHERE `receiver_id` = ?", (receiver_id,))
+
+    assert len(cursor.fetchall()) == 1
+
+    with pytest.raises(cryodb.NoRecordInsertedError):
+        receiver_id = db.add_receiver(
+            receiver_id = receiver_id_hex,
+            receiver_type = cryodb.ReceiverType.TRIPOD,
+            receiver_name = "Test Receiver"
+        )
+
+    cursor.execute("DELETE FROM `receiver_table` WHERE `receiver_id` = ?;", (receiver_id_dec,))
+
+    db.commit()
+
+    cursor.execute("SELECT * FROM `receiver_table` WHERE `receiver_id` = ? LIMIT 1;", (receiver_id_dec,))
+
+    assert len(cursor.fetchall()) == 0
+
+
 def test_add_receiver(db_mariadb, db_sqlite):
     
     __test_add_receiver(db_mariadb)

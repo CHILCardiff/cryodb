@@ -1,0 +1,50 @@
+{
+  "id": "9f1cc8cd-40ec-40a4-b9f0-3a9ca146510e",
+  "receivedAt": {
+    "year": 2024,
+    "month": 12,
+    "day": 9,
+    "hour": 11,
+    "minute": 10,
+    "second": 58
+  },
+  "identity": {
+    "accountId": "LyjrgkpAemZqGWRDKjBRvNVKxQPXdYoO",
+    "subscriber": {
+      "id": "YAlRXzwrdjymbnKlLPKWKLNxvPkMeqgG",
+      "type": "SUBSCRIBER_TYPE_SBD",
+      "description": ""
+    },
+    "hardware": {
+      "id": "AagLlVGjyNzQbEOPZMZBoRXPekmOvrxJ",
+      "type": "HARDWARE_TYPE_UNKNOWN",
+      "imei": "300534064799170",
+      "serial": "216143",
+      "key": ""
+    },
+    "identifier": "300534064799170",
+    "thingId": "JaKzYmyeDdjGPWaKmkBLrlVqgZxNXApv"
+  },
+  "sbd": {
+    "imei": "300534064799170",
+    "cdrReference": "1558739757",
+    "momsn": 3992,
+    "mtmsn": 0,
+    "sessionAt": {
+      "year": 2024,
+      "month": 12,
+      "day": 9,
+      "hour": 11,
+      "minute": 10,
+      "second": 57
+    },
+    "status": "SESSION_STATUS_OK",
+    "location": {
+      "latitude": 67.17716666666666,
+      "longitude": -50.17075,
+      "cep": 4.0
+    }
+  },
+  "message": "QzEG0FZneyLOv5jUbURNCwIWRCRIGAAkzgEHqmkDAwRhXYg+pQ9pupFDMQXPVmcUMsu/7MhtRDsLAhZEJEggACTOAQeq5w0DBFhDmz6oD/OsQQ==",
+  "signature": ""
+}

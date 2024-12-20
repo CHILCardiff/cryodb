@@ -7,6 +7,7 @@ import cryodecoder
 import datetime
 import hashlib
 import importlib.resources
+import ipaddress
 import json
 import logging
 import mariadb
@@ -249,7 +250,7 @@ class Receiver:
             "id" : f"{self.id:x}",
             "type" : self.type.value,
             "name" : self.name if self.name is not None else "",
-            "imei" : f"{self.imei:016d}", 
+            "imei" : self.imei, 
             "manufacture_date" : self.manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.manufacture_date is not None else "",
             "commission_date" : self.commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if self.commission_date is not None else "",
             "manufacture_batch" : self.manufacture_batch,
@@ -473,29 +474,34 @@ class CryoDatabase:
         """
 
         # If id is none, select for the current object
-        id = self.__ingest_event_id
-
         if id == None:
-            raise ValueError("Cannot get IngestEvent object for ingest_event_id:None")
+            if self.__ingest_event_id == None:
+                raise ValueError("No ingest_event_id provided and no default ingest_event_id set.")
+            id = self.__ingest_event_id
 
-        # Check whether ingest event object is out of date
-        if self.__ingest_event_obj is None or self.__ingest_event_id != self.__ingest_event_obj.id:
-
+        if self.__ingest_event_obj is not None and self.__ingest_event_id == id:
+            return self.__ingest_event_obj
+        else:
             # Request ingest_event information 
             cursor = self.cursor()
-            cursor.execute("SELECT `ingest_event_id`, `ingest_type`, `description`, `timestamp` FROM `ingest_event_table` WHERE `ingest_event_id` = ?;", (self.__ingest_event_id,))
+            cursor.execute("SELECT `ingest_event_id`, `ingest_type`, `description`, `timestamp` FROM `ingest_event_table` WHERE `ingest_event_id` = ?;", (id,))
 
             results = cursor.fetchall()
 
             if len(results) != 1:
                 raise ValueError("Cannot get IngestEvent object for ingest_event_id:{id}")
             
-            return IngestEvent(
+            ingest_event_obj = IngestEvent(
                 id=results[0][0],
                 type=IngestType.__members__[results[0][1]],
                 description=results[0][2],
                 timestamp=datetime.datetime.strptime(results[0][3], CryoDatabase.STRFTIME_FORMAT)
             )
+
+            if self.__ingest_event_id == id:
+                self.__ingest_event_obj = ingest_event_obj
+
+            return ingest_event_obj
 
     def ingest_lingomo(self, json_obj : str, ingest_event : Union[IngestEvent, int]):
         """
@@ -573,9 +579,9 @@ class CryoDatabase:
                     imei,
                     lingomo_packet["identity"]["hardware"]["serial"],
                     lingomo_packet["sbd"]["momsn"],
-                    lingomo_packet["location"]["latitude"],
-                    lingomo_packet["location"]["longitude"],
-                    lingomo_packet["location"]["cep"]
+                    lingomo_packet["sbd"]["location"]["latitude"],
+                    lingomo_packet["sbd"]["location"]["longitude"],
+                    lingomo_packet["sbd"]["location"]["cep"]
                 )
             )
 
@@ -610,16 +616,16 @@ class CryoDatabase:
         payload = base64.b64decode(lingomo_packet["message"])
 
         # Convert payload to SDPackets
-        packets = cryodecoder.bytes_to_packets(payload)
+        packets = [cryodecoder.SDPacket(p) for p in cryodecoder.bytes_to_packets(payload)]
 
         # Iterate over packets found in the payload
         for packet in packets:
-            self.ingest_sdpacket(packet, receiver_id, ingest_event.id, commmit_on_complete=False)
+            self.ingest_sdpacket(packet, receiver_id, ingest_event.id, ingest_id, commit_on_complete=False)
 
         # end transaction
         self.commit()
 
-        pass
+        return ingest_id
 
     def ingest_sdcard(
         self, 
@@ -684,7 +690,8 @@ class CryoDatabase:
         self, 
         packet, 
         receiver_id : int, 
-        ingest_event : IngestEvent, 
+        ingest_event : IngestEvent,
+        ingest_id : int = None, 
         commit_on_complete=True
     ):
         
@@ -692,14 +699,15 @@ class CryoDatabase:
         cursor = self.cursor()
 
         # Create an ingest id
-        cursor.execute(
-            "INSERT INTO `ingest_table` (`ingest_event_id`, `raw`) VALUES (?,?);", (ingest_event.id, packet.raw)
-        )
-        # TODO: replace raw value so that we store hex not raw bytes?
+        if ingest_id == None:
+            cursor.execute(
+                "INSERT INTO `ingest_table` (`ingest_event_id`, `raw`) VALUES (?,?);", (ingest_event.id, packet.get_raw())
+            )
+            # TODO: replace raw value so that we store hex not raw bytes?
 
-        # and get the value
-        ingest_id = cursor.lastrowid
-        assert ingest_id != -1 # for sqlite3 database
+            # and get the value
+            ingest_id = cursor.lastrowid
+            assert ingest_id != -1 # for sqlite3 database
 
         # Strip SDPacket into constitutent parts
         receiver_data = packet.get_receiver_packet()
@@ -735,6 +743,7 @@ class CryoDatabase:
         packet : cryodecoder.SDPacket, 
         receiver_id : int, 
         ingest_event : Union[IngestEvent, int, NoneType] = None, 
+        ingest_id : int = None,
         commit_on_complete=True
     ):
         """ingest a single SDPcaket (i.e. W1/W2/C0/C1 etc) style packet
@@ -755,15 +764,16 @@ class CryoDatabase:
             # otherwise, get the current ingest event
             ingest_event = self.get_ingest_event()
 
-        # Check that we are using an SD card ingest event
-        if ingest_event.type != IngestType.SDCARD:
-            raise InvalidIngestEventError("The ingest event #{event_id} type is not SDCARD")
+        # Check that we are using an SD card or LignoMO ingest event
+        if ingest_event.type not in (IngestType.SDCARD, IngestType.LINGOMO):
+            raise InvalidIngestEventError("The ingest event #{event_id} type is not SDCARD or LINGOMO")
 
         self.__ingest_sdpacket_novalidation(
             packet,
+            receiver_id,
             ingest_event,
-            commit_on_complete,
-            receiver_id
+            ingest_id,
+            commit_on_complete
         )
 
 
@@ -780,7 +790,7 @@ class CryoDatabase:
         # Insert values
         cursor = self.cursor()
         cursor.execute(
-            "INSERT INTO `receiver_data` (`receiver_id`, `ingest_id`, `timestamp`, `channel`, `temperature_logger`, `pressure_logger`, `voltage_logger`) VALUES (?,?,?,?,?,?,?);",
+            "INSERT INTO `receiver_data_table` (`receiver_id`, `ingest_id`, `timestamp`, `channel`, `temperature_logger`, `pressure_logger`, `voltage_logger`) VALUES (?,?,?,?,?,?,?);",
             (
                 receiver_id, ingest_id, packet.timestamp, packet.channel, packet.temperature, packet.pressure, packet.voltage
             )    
@@ -812,15 +822,15 @@ class CryoDatabase:
             (
                 receiver_data_id,
                 ingest_id,
-                int(packet.id, 16), # convert from hex string to integer
-                packet.conductivity,
-                packet.temperature_pt1000,
-                packet.pressure,
-                packet.temperature,
+                packet.instrument_id,
+                packet.conductivity_raw,
+                packet.temperature_pt1000_raw,
+                packet.pressure_raw,
+                packet.temperature_raw,
                 packet.battery_voltage,
                 packet.sequence_number,
                 packet.rssi,
-                packet.uid
+                packet.packet_type
             ))
 
             instrument_type = InstrumentType.Cryoegg
@@ -912,9 +922,10 @@ class CryoDatabase:
         return cursor.lastrowid
         
     def add_receiver(self, 
-        receiver_id : Union[str, int, None] = None,
-        receiver_type : Union[str, NoneType] = None,
+        receiver_id : Union[str, int, NoneType] = None,
+        receiver_type : Union[str, ReceiverType, NoneType] = None,
         receiver_name : Union[str, NoneType] = None,
+        imei_number : Union[str, int, NoneType] = None,
         manufacture_date : Union[datetime.datetime, NoneType] = None,
         manufacture_batch : Union[str, NoneType] = None,
         commission_date : Union[datetime.datetime, NoneType] = None,
@@ -940,16 +951,21 @@ class CryoDatabase:
 
         cursor = self.cursor()
         # Insert values
-        cursor.execute("INSERT INTO `receiver_table` (`receiver_id`, `name`, `type`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes`) VALUES (?,?,?,?,?,?,?,?)", 
-        (
-            receiver_id,
-            receiver_type,
-            receiver_name,
-            manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if manufacture_date is not None else None,
-            manufacture_batch,
-            commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if commission_date is not None else None,
-            notes
-        ))
+        try: 
+            cursor.execute("INSERT INTO `receiver_table` (`receiver_id`, `name`, `type`, `imei_number`, `manufacture_date`, `manufacture_batch`, `commission_date`, `notes`) VALUES (?,?,?,?,?,?,?,?)", 
+            (
+                receiver_id,
+                receiver_type,
+                receiver_name,
+                imei_number,
+                manufacture_date.strftime(CryoDatabase.STRFTIME_FORMAT) if manufacture_date is not None else None,
+                manufacture_batch,
+                commission_date.strftime(CryoDatabase.STRFTIME_FORMAT) if commission_date is not None else None,
+                notes
+            ))
+        except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
+            self.connection.rollback()
+            raise NoRecordInsertedError()
 
         # Commit new instrument to database
         self.commit()
@@ -1192,7 +1208,7 @@ class CryoDatabase:
         
         cursor = self.cursor()
         try:
-            cursor.execute("INSERT INTO `receiver_deployment_table` (`description`, `campaign_id`, `receiver_id`, `firmware_version`, `antenna_type`, `start_timestamp`, `end_timestamp`, `service_timestamp`, `original_latitude`, `original_longitude`, `original_elevation`, `latest_latitude`, `latest_longitude`, `latest_elevation`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
+            cursor.execute("INSERT INTO `receiver_deployment_table` (`description`, `campaign_id`, `receiver_id`, `firmware_version`, `antenna_type`, `start_timestamp`, `end_timestamp`, `service_timestamp`, `original_latitude`, `original_longitude`, `original_elevation`, `latest_latitude`, `latest_longitude`, `latest_elevation`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
             (
                 description,
                 campaign_id,
@@ -1290,38 +1306,87 @@ class CryoDatabase:
         campaigns : Union[int, Iterable[int]] = None, 
         can_select : bool = False, 
         can_update : bool = False, 
-        can_insert : bool = False
+        can_insert : bool = False,
+        ip : Union[str, ipaddress.IPv4Address] = None
     ):
         
         if self.__is_sqlite():
             raise TypeError("Cannot create API keys for Sqlite database.")
         
-        # Check we have a local salt available in the environment variables
-        if not "CRYODB_SALT" in os.environ:
-            raise KeyError("Cannot find CRYODB_SALT key in environment variables - check server configuration")
-
+        # Check that we have a valid API key name
         if len(name) < 1:
             raise ValueError("Cannot create API key with empty string.")
-        
-        # Generate random SHA256 digest
-        hashgen = hashlib.new("sha256")
-        hashgen.update(secrets.SystemRandom().randbytes(256))
-        key = hashgen.hexdigest()
 
-        # This is the user private key
         cursor = self.cursor()
+            
+        global_can_select = False
+        global_can_update = False
+        global_can_insert = False
+            
+        if type == APIKeyType.IP:
+
+            # Convert IP address to IPv4 class
+            if isinstance(ip, str):
+                ip = ipaddress.ip_address(ip)
+            
+            if ip == None or not isinstance(ip, (ipaddress.IPv4Address)):
+                raise ValueError("IP address cannot be empty and should be an IPv4 address")
+            
+            # Assign global properties for IP keys
+            global_can_insert = can_insert
+            global_can_update = can_update
+            global_can_select = can_select
+
+            key = str(ip)
         
-        cursor.execute(
-            "INSERT INTO `api_keys` (`name`, `type`, `hash`, `email`, `created`, `last_accessed`) VALUES (?,?,SHA2(CONCAT(?,?),256),?,?,?)",
-            (
-                name,
-                type.name,
-                key, os.environ["CRYODB_SALT"], # SQL concats these
-                email if email is not None else "",
-                datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
-                datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT)
+            cursor.execute(
+                "INSERT INTO `api_keys` (`name`,`type`,`email`,`ip`,`created`,`last_accessed`, `can_select`, `can_insert`, `can_update`) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    name,
+                    type.name,
+                    email if email is not None else "",
+                    str(ip),
+                    datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
+                    datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
+                    global_can_select,
+                    global_can_insert,
+                    global_can_update
+                )
             )
-        )
+
+        else:
+
+            # Check we have a local salt available in the environment variables
+            if not "CRYODB_SALT" in os.environ:
+                raise KeyError("Cannot find CRYODB_SALT key in environment variables - check server configuration")
+
+            # Generate random SHA256 digest
+            hashgen = hashlib.new("sha256")
+            hashgen.update(secrets.SystemRandom().randbytes(256))
+            # This is the user private key
+            key = hashgen.hexdigest()
+
+            if type == APIKeyType.ADMIN:
+                # Assign global properties for admin keys
+                global_can_insert = True
+                global_can_update = True
+                global_can_select = True
+            
+            cursor.execute(
+                "INSERT INTO `api_keys` (`name`, `type`, `hash`, `email`, `created`, `last_accessed`, `can_select`, `can_insert`, `can_update`) VALUES (?,?,SHA2(CONCAT(?,?),256),?,?,?,?,?,?)",
+                (
+                    name,
+                    type.name,
+                    key, 
+                    os.environ["CRYODB_SALT"], # SQL concats these
+                    email if email is not None else "",
+                    datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
+                    datetime.datetime.now(tz=datetime.timezone.utc).strftime(CryoDatabase.STRFTIME_FORMAT),
+                    global_can_select,
+                    global_can_insert,
+                    global_can_update
+                )
+            )
 
         if cursor.lastrowid == -1:
             raise NoRecordInsertedError
@@ -1412,7 +1477,7 @@ class CryoDatabase:
         # If we have a provided, check this
         if key != None:
             cursor.execute(
-                "SELECT `key_id`, `type` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1", 
+                "SELECT `key_id`, `type`, `can_select`, `can_insert`, `can_update` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256) LIMIT 1", 
                 (
                     key, os.environ["CRYODB_SALT"]
                 )
@@ -1421,7 +1486,7 @@ class CryoDatabase:
         # otherwise lookup the IP address
         elif ip != None:
             cursor.execute(
-                "SELECT `key_id`, `type` FROM `api_keys` WHERE `ip` = ? AND `type` = `ip` LIMIT 1",
+                "SELECT `key_id`, `type`, `can_select`, `can_insert`, `can_update` FROM `api_keys` WHERE `ip` = ? AND `type` = 'IP' LIMIT 1",
                 (ip,)
             )
 
@@ -1435,68 +1500,79 @@ class CryoDatabase:
         if key_result is None:
             return None, None
         
-        key_id, type = key_result
+        key_id, type, global_select, global_insert, global_update = key_result
+        # Convert type to API key type 
+        type = APIKeyType(type.lower())
 
-        type = APIKeyType[type]
+        # Get all instrument, receiver and campaign id's
+        cursor.execute("SELECT `instrument_id` FROM `instrument_table`;")
+        instrument_ids = [x[0] for x in cursor.fetchall()]
+        cursor.execute("SELECT `receiver_id` FROM `receiver_table`;")
+        receiver_ids = [x[0] for x in cursor.fetchall()]
+        cursor.execute("SELECT `campaign_id` FROM `campaign_table`;")
+        campaign_ids = [x[0] for x in cursor.fetchall()]
 
-        # If it's an admin key then return all permissions
-        if type == APIKeyType.ADMIN:
-            
-            return type, None
-        
-        # Otherwise, 
-        else:
-            
-            permissions = {
-                "campaigns" : { 
-                    "select" : [],
-                    "update" : [],
-                    "insert" : []
-                },
-                "receivers" : { 
-                    "select" : [],
-                    "update" : [],
-                    "insert" : []
-                },
-                "instruments" : { 
-                    "select" : [],
-                    "update" : [],
-                    "insert" : []
-                }
+        permissions = {
+            "campaigns" : { 
+                "select" : [],
+                "update" : [],
+                "insert" : []
+            },
+            "receivers" : { 
+                "select" : [],
+                "update" : [],
+                "insert" : []
+            },
+            "instruments" : { 
+                "select" : [],
+                "update" : [],
+                "insert" : []
             }
+        }
 
-            # Get instrument permissions
-            cursor.execute("SELECT DISTINCT `instrument_id`, `can_select`, `can_update`, `can_insert` FROM `instrument_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256)) GROUP BY `instrument_id`;", (key, os.environ["CRYODB_SALT"]))
+        # Apply global permissions
+        for category, ids in {"campaigns" : campaign_ids, "receivers" : receiver_ids, "instruments" : instrument_ids}.items():
+            
+            if global_select:
+                permissions[category]["select"] = ids
+            if global_update:
+                permissions[category]["update"] = ids
+            if global_insert:
+                permissions[category]["insert"] = ids
 
-            for id, select, update, insert in cursor.fetchall():
-                if select:
-                    permissions["instruments"]["select"].append(id)
-                if update:
-                    permissions["instruments"]["update"].append(id)
-                if insert:
-                    permissions["instruments"]["insert"].append(id)
+        
+        # Get instrument permissions
+        cursor.execute("SELECT DISTINCT `instrument_id`, `can_select`, `can_update`, `can_insert` FROM `instrument_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` = ? GROUP BY `instrument_id`;", (key_id,))
 
-            cursor.execute("SELECT DISTINCT `receiver_id`, `can_select`, `can_update`, `can_insert` FROM `receiver_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256)) GROUP BY `receiver_id`;", (key, os.environ["CRYODB_SALT"]))
+        for id, select, update, insert in cursor.fetchall():
+            if select and not id in permissions["instruments"]["select"]:
+                permissions["instruments"]["select"].append(id)
+            if update and not id in permissions["instruments"]["update"]:
+                permissions["instruments"]["update"].append(id)
+            if insert and not id in permissions["instruments"]["insert"]:
+                permissions["instruments"]["insert"].append(id)
 
-            for id, select, update, insert in cursor.fetchall():
-                if select:
-                    permissions["receivers"]["select"].append(id)
-                if update:
-                    permissions["receivers"]["update"].append(id)
-                if insert:
-                    permissions["receivers"]["insert"].append(id)
+        cursor.execute("SELECT DISTINCT `receiver_id`, `can_select`, `can_update`, `can_insert` FROM `receiver_deployment_table` INNER JOIN `api_key_permissions` USING(`campaign_id`) WHERE `key_id` = ? GROUP BY `receiver_id`;", (key_id,))
 
-            cursor.execute("SELECT `campaign_id`, `can_select`, `can_insert`, `can_insert` FROM `api_key_permissions` WHERE `key_id` in (SELECT `key_id` FROM `api_keys` WHERE `hash` = SHA2(CONCAT(?,?),256));", (key, os.environ["CRYODB_SALT"]))
+        for id, select, update, insert in cursor.fetchall():
+            if select and not id in permissions["receivers"]["select"]:
+                permissions["receivers"]["select"].append(id)
+            if update and not id in permissions["receivers"]["update"]:
+                permissions["receivers"]["update"].append(id)
+            if insert and not id in permissions["receivers"]["insert"]:
+                permissions["receivers"]["insert"].append(id)
 
-            for id, select, update, insert in cursor.fetchall():
-                if select:
-                    permissions["campaigns"]["select"].append(id)
-                if update:
-                    permissions["campaigns"]["update"].append(id)
-                if insert:
-                    permissions["campaigns"]["insert"].append(id)
+        cursor.execute("SELECT `campaign_id`, `can_select`, `can_insert`, `can_insert` FROM `api_key_permissions` WHERE `key_id` = ? GROUP BY `campaign_id`;", (key_id,))
 
-            return type, permissions
+        for id, select, update, insert in cursor.fetchall():
+            if select and not id in permissions["campaigns"]["select"]:
+                permissions["campaigns"]["select"].append(id)
+            if update and not id in permissions["campaigns"]["update"]:
+                permissions["campaigns"]["update"].append(id)
+            if insert and not id in permissions["campaigns"]["insert"]:
+                permissions["campaigns"]["insert"].append(id)
+
+        return type, permissions
         
     @staticmethod
     def initialise_sqlite3(path : Union[str, pathlib.Path]):

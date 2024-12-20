@@ -1,5 +1,6 @@
 import argparse
 import cryodb
+import datetime
 import flask
 from flask import current_app
 from flask import g
@@ -11,6 +12,30 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Import cryodb logger
 from ..__init__ import cryodb_logger
+
+class CryodbResponse(flask.Response):
+    default_mimetype = "application/json"
+
+class CryodbErrorResponse(CryodbResponse):
+
+    def __init__(self, exception, status=500, message="", **kwargs):
+
+        if not isinstance(exception, Exception):
+            self.exception_name = "Error"
+        else:
+            self.exception_name = exception.__class__.__name__
+            self.exception_message = str(exception) if message == "" else message
+
+        # Create response from exception information
+        data = {
+            "error" : {
+                "name"      : self.exception_name,
+                "message"   : self.exception_message,
+                "timestamp" : str(datetime.datetime.now())
+            }
+        }
+
+        super().__init__(response=data, status=status, mimetype="application/json", **kwargs)
 
 RESPONSES = {
     "invalid_api_key" : flask.Response(
@@ -79,7 +104,7 @@ def validate_api_key():
         # Check whether we have an API key available
         # ! Raises ValueError if IP address is invalid !
         ip = ipaddress.ip_address(request.remote_addr)
-        api_type, permissions = db.get_api_keymissions(ip=str(ip))
+        api_type, permissions = db.get_api_permissions(ip=str(ip))
     # else if the key is provided in the header, validate that
     else:
         # Check if we're using an IP authentication type
@@ -146,7 +171,7 @@ def create_app(test_config = None):
         # Validate API
         try:
             api_type, permissions = validate_api_key()
-        except cryodb.InvalidAPIKeyError():
+        except cryodb.InvalidAPIKeyError:
             return RESPONSES["invalid_api_key"]
         
         # Get DB object
@@ -155,7 +180,7 @@ def create_app(test_config = None):
         try:
             type = cryodb.InstrumentType(type)
         except ValueError as e:
-            return flask.Response(f"Bad request - type {api_type} invalid", status=400)
+            return CryodbErrorResponse(e, status=400)
         
         instruments = []
         # if the permissions are ADMIN then return all instruments
@@ -167,8 +192,7 @@ def create_app(test_config = None):
 
         cryodb_logger.debug(f"Retrieved {len(instruments)} {type} instruments")
 
-        response = flask.Response(json.dumps([i.to_dict() for i in instruments]), status=200, mimetype="application/json")
-        return response
+        return CryodbResponse(json.dumps([i.to_dict() for i in instruments]), status=200)
 
     ###########################################################################
     @cryodb_app.route("/receiver/list", methods=["GET",])
@@ -177,8 +201,8 @@ def create_app(test_config = None):
         # Validate API
         try:
             api_type, permissions = validate_api_key()
-        except cryodb.InvalidAPIKeyError():
-            return RESPONSES["invalid_api_key"]
+        except cryodb.InvalidAPIKeyError as e:
+            return CryodbErrorResponse(e, 401, "Invalid API key")
         
         # Get DB object
         db = get_cryodb()
@@ -191,38 +215,39 @@ def create_app(test_config = None):
 
         cryodb_logger.debug(f"Retrieved {len(receivers)} receivers")
 
-        response = flask.Response(json.dumps([r.to_dict() for r in receivers]), status=200, mimetype="application/json")
-        return response
+        return CryodbResponse(json.dumps([r.to_dict() for r in receivers]), status=200)
     
     ###########################################################################
-    @cryodb_app.route("/ingest/lingomo", method=["POST",])
+    @cryodb_app.route("/ingest/lingomo", methods=["POST",])
     def ingest_lingomo():
 
         # Validate API
         try:
             api_type, permissions = validate_api_key()
-        except cryodb.InvalidAPIKeyError():
-            return RESPONSES["invalid_api_key"]
+        except cryodb.InvalidAPIKeyError as e:
+            return CryodbErrorResponse(e, 401, message="Invalid API key.")
         
-        event_id = cryodb_app.config("LINGOMO_EVENT_ID")
+        event_id = cryodb_app.config["LINGOMO_EVENT_ID"]
         if event_id == None:
-            return RESPONSES["no_ingest_event"]            
+            return CryodbErrorResponse(ValueError(), 500, message="config['LINGOMO_EVENT_ID'] not set.")
 
         # Try inserting LingoMO into database
         db = get_cryodb()
         try: 
-            db.ingest_lingomo(request.data.decode("utf-8"), event_id)
+            ingest_id = db.ingest_lingomo(request.data.decode("utf-8"), event_id)
             
         except json.decoder.JSONDecodeError as e:
-            return flask.Response({"Invalid JSON data."}, 400) # Bad request
-        except InvalidLingoMOPacketError as e:
-            return flask.Response({"Invalid LingoMO packet."}, 400) # Bad request
+            return CryodbErrorResponse(e, 400, message="Invalid JSON data.") # Bad request
+        except cryodb.InvalidLingoMOPacketError as e:
+            return CryodbErrorResponse(e, 400, message="Invalid LingoMO packet.") # Bad request
         except cryodb.NoRecordInsertedError as e:
-            return flask.Response({"Failed to insert record."}, 501) # Internal server error
+            return CryodbErrorResponse(e, 501, "Failed to insert record.") # Internal server error
         except ValueError as e:
-            return flask.Response({str(e),}, 501)
-        except Exception:
-            return flask.Response({"Could not ingest message."}, 501)
+            return CryodbErrorResponse(e, 500)
+        except Exception as e:
+            return CryodbErrorResponse(e, 500, message="Could not ingest message.")
+        
+        return CryodbResponse({"ingest_id" : ingest_id}, 200)
 
         
     ###########################################################################

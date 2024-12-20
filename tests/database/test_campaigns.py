@@ -13,6 +13,8 @@ def __test_campaign_workflow(db : cryodb.CryoDatabase):
 
     # Setup test by deleting any objects to be created
     cursor = db.cursor()
+    
+    db.commit()
 
     # Create a new campaign
     campaign_id = db.add_campaign("test_campaign", "test campaign", 69.9, -30.3, start_timestamp = datetime.datetime.now(tz=datetime.timezone.utc))
@@ -20,7 +22,7 @@ def __test_campaign_workflow(db : cryodb.CryoDatabase):
     print(f"Added campaign with ID [{campaign_id}]")
 
     # Add an instrument
-    instrument_one_id = db.add_instrument("ce990001", cryodb.InstrumentType.Cryoegg, 30.0)
+    instrument_one_id = db.add_instrument("ce990099", cryodb.InstrumentType.Cryoegg, 30.0)
     # Add a receiver
     receiver_one_id = db.add_receiver("99000001", cryodb.ReceiverType.PORTABLE, receiver_name="Cardiff Portable Receiver #1")
     
@@ -85,11 +87,13 @@ def __test_campaign_workflow(db : cryodb.CryoDatabase):
     )
 
     # Cleanup
-    cursor.execute("DELETE FROM `receiver_deployment_table` WHERE `deployment_id` = ?;", (rcvr_deployment_id,))
-    cursor.execute("DELETE FROM `instrument_deployment_table` WHERE `deployment_id` = ?;", (instr_deployment_id,))
+    cursor.execute("DELETE FROM `receiver_deployment_table` WHERE `receiver_id` = ?;", (receiver_one_id,))
+    cursor.execute("DELETE FROM `instrument_deployment_table` WHERE `instrument_id` = ?;", (instrument_one_id,))
     cursor.execute("DELETE FROM `receiver_table` WHERE `receiver_id` = ?;", (receiver_one_id,))
     cursor.execute("DELETE FROM `instrument_table` WHERE `instrument_id` = ?;", (instrument_one_id,))
-    cursor.execute("DELETE FROM `campaign_table` WHERE `campaign_name` = 'test_campaign';")
+    cursor.execute("DELETE FROM `campaign_table` WHERE `name` = 'test_campaign';")
+
+    db.commit()
     
 def test_campaign_workflow(db_mariadb, db_sqlite):
 

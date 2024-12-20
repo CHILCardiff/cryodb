@@ -1,5 +1,6 @@
 import cryodb
 import cryodb.server
+import datetime
 import importlib.resources
 import mariadb
 import pathlib
@@ -77,8 +78,14 @@ def cryodb_server_app():
         pytest.TEST_API_KEYS = {
             "admin" : db.add_api_key("admin_key", cryodb.APIKeyType.ADMIN, "admin@email.com"),
             "user" : db.add_api_key("user_key", cryodb.APIKeyType.USER, "user@email.com", campaigns=1, can_select=True, can_update=True),
-            "service" : db.add_api_key("service_key", cryodb.APIKeyType.SERVICE, "service@email.com", campaigns=[1,2], can_select=True)
+            "service" : db.add_api_key("service_key", cryodb.APIKeyType.SERVICE, "service@email.com", campaigns=[1,2], can_select=True, can_insert=True)
         }
+
+        pytest.TEST_API_KEYS_IP = {
+            "10.20.30.40" : db.add_api_key("ip_key", cryodb.APIKeyType.IP, "noreply@noreply.com", campaigns=1, can_select=True, can_insert=True, can_update=False, ip="10.20.30.40")
+        }
+        
+        app.config["LINGOMO_EVENT_ID"] = db.add_ingest_event(cryodb.IngestType.LINGOMO, "test_lingomo", datetime.datetime.now())
 
         db.disconnect()
 
