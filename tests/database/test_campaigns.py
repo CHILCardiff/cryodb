@@ -9,7 +9,11 @@ import pytest
 # import common test parameters
 from .config import *
 
-def __test_campaign_workflow(db : cryodb.CryoDatabase):
+
+@pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
+def test_campaign_workflow(db, request):
+
+    db = request.getfixturevalue(db)
 
     # Setup test by deleting any objects to be created
     cursor = db.cursor()
@@ -94,8 +98,3 @@ def __test_campaign_workflow(db : cryodb.CryoDatabase):
     cursor.execute("DELETE FROM `campaign_table` WHERE `name` = 'test_campaign';")
 
     db.commit()
-    
-def test_campaign_workflow(db_mariadb, db_sqlite):
-
-    __test_campaign_workflow(db_mariadb)
-    __test_campaign_workflow(db_sqlite)

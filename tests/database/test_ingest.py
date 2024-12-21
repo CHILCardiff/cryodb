@@ -10,7 +10,10 @@ import pytest
 # import common test parameters
 from .config import *
 
-def __add_ingest_event(db):
+@pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
+def test_add_ingest_event(db, request):
+
+    db = request.getfixturevalue(db)
 
     # Log all ingest events created, to remvoe them afterwards
     ingest_event_ids = []
@@ -67,14 +70,10 @@ def __add_ingest_event(db):
     cursor.execute(f"DELETE FROM `ingest_event_table` WHERE `ingest_event_id` IN ({("?,"*len(ingest_event_ids))[0:-1]});", ingest_event_ids)
     db.commit()
 
-        
-def test_add_ingest_event_mariadb(db_mariadb):
-    __add_ingest_event(db_mariadb)
+@pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
+def test_get_ingest_event(db, request):
 
-def test_add_ingest_event_sqlite(db_sqlite):
-    __add_ingest_event(db_sqlite)
-
-def __get_ingest_event(db):
+    db = request.getfixturevalue(db)
 
     event_id = db.add_ingest_event(
         type = cryodb.IngestType.TEST,
@@ -93,9 +92,3 @@ def __get_ingest_event(db):
     # Cleanup
     db.cursor().execute(f"DELETE FROM `ingest_event_table` WHERE `ingest_event_id` = ?;", (event_id,))
     db.commit()
-
-def test_get_ingest_event_mariadb(db_mariadb):
-    __get_ingest_event(db_mariadb)
-
-def test_get_ingest_event_sqlite(db_sqlite):
-    __get_ingest_event(db_sqlite)

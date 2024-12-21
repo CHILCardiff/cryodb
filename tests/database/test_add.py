@@ -10,7 +10,10 @@ import pytest
 # import common test parameters
 from .config import *
 
-def __test_add_instrument(db : cryodb.CryoDatabase):
+@pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
+def test_add_instrument(db, request):
+
+    db = request.getfixturevalue(db)
     
     instrument_id_hex = "aa123456"
     instrument_id_dec = int(instrument_id_hex, 16)
@@ -47,12 +50,10 @@ def __test_add_instrument(db : cryodb.CryoDatabase):
 
     assert len(cursor.fetchall()) == 0
 
-def test_add_instrument(db_mariadb, db_sqlite):
+@pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
+def test_add_receiver(db, request):
 
-    __test_add_instrument(db_mariadb)
-    __test_add_instrument(db_sqlite)
-
-def __test_add_receiver(db : cryodb.CryoDatabase):
+    db = request.getfixturevalue(db)
 
     receiver_id_hex = "123"
     receiver_id_dec = int(receiver_id_hex, 16)
@@ -88,12 +89,6 @@ def __test_add_receiver(db : cryodb.CryoDatabase):
     cursor.execute("SELECT * FROM `receiver_table` WHERE `receiver_id` = ? LIMIT 1;", (receiver_id_dec,))
 
     assert len(cursor.fetchall()) == 0
-
-
-def test_add_receiver(db_mariadb, db_sqlite):
-    
-    __test_add_receiver(db_mariadb)
-    __test_add_receiver(db_sqlite)
 
 def test_add_campaign():
     pass
