@@ -69,7 +69,10 @@ def sql_transaction(func):
         # Get self from arguments
         self = args[0]
         # get db connection and begin transaction
-        db = self.connection.begin()
+        if self._CryoDatabase__is_sqlite():
+            self.cursor().execute("BEGIN TRANSACTION")
+        else:
+            self.connection.begin()
         try:
             # run the function
             return_value = func(*args, **kwargs)
@@ -578,7 +581,6 @@ class CryoDatabase:
             raise ValueError("Invalid ingest event - check LingoMO ingest event type")
     
         # Begin transaction
-        self.connection.begin()
         cursor = self.cursor()
 
         ### STEP 2 - Create new ingest row in ingest_table
@@ -662,9 +664,6 @@ class CryoDatabase:
         # Iterate over packets found in the payload
         for packet in packets:
             self.ingest_sdpacket(packet, receiver_id, ingest_event.id, ingest_id, commit_on_complete=False)
-
-        # end transaction
-        self.commit()
 
         return ingest_id
 
