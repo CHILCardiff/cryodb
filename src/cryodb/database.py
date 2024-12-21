@@ -49,6 +49,46 @@ CRYODB_VALID_TABLES = [
     "cryoegg_raw_table"
 ]
 
+def log_exceptions(func): 
+    """
+    log exceptions to the configured log file
+    """
+    try:
+        func()
+    except Exception as e:
+        # Do logging
+        pass
+        # Re-raise exception
+        raise e
+
+def sql_transaction(func):
+    """
+    wrap a function in a sql transaction to ensure rollback on exceptions
+    """
+    def self_wrapper(*args, **kwargs):
+        # Get self from arguments
+        self = args[0]
+        # get db connection and begin transaction
+        db = self.connection.begin()
+        try:
+            # run the function
+            return_value = func(*args, **kwargs)
+            # if there's no exception, commit
+            if "commit_on_complete" in kwargs:
+                if kwargs["commit_on_complete"]:
+                    self.commit()
+            else:
+                self.commit()
+            # and return from the function
+            return return_value
+        # if there's an exception
+        except Exception as e:
+            # roll back the transaction
+            self.connection.rollback()
+            # then re-raise the exception
+            raise e
+    return self_wrapper
+
 def sql_to_statements(path):
 
     with open(path, "r") as fh:
@@ -503,6 +543,7 @@ class CryoDatabase:
 
             return ingest_event_obj
 
+    @sql_transaction
     def ingest_lingomo(self, json_obj : str, ingest_event : Union[IngestEvent, int]):
         """
         accepts a JSON LingoMO object and ingests
@@ -627,6 +668,7 @@ class CryoDatabase:
 
         return ingest_id
 
+    @sql_transaction
     def ingest_sdcard(
         self, 
         path, 
@@ -686,6 +728,7 @@ class CryoDatabase:
             # Commit all changes
             self.commit()
 
+    @sql_transaction
     def __ingest_sdpacket_novalidation(
         self, 
         packet, 
@@ -738,6 +781,7 @@ class CryoDatabase:
 
         return receiver_data_id, instrument_data_id, instrument_type
 
+    @sql_transaction
     def ingest_sdpacket(
         self, 
         packet : cryodecoder.SDPacket, 
@@ -853,6 +897,7 @@ class CryoDatabase:
 
         return instrument_id, instrument_type
 
+    @sql_transaction
     def ingest_localpacket(packet_obj, ingest_event_id):
         """
         assmues we already have a LocalUSBPacket from cryodecoder 

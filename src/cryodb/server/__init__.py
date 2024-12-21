@@ -37,15 +37,6 @@ class CryodbErrorResponse(CryodbResponse):
 
         super().__init__(response=data, status=status, mimetype="application/json", **kwargs)
 
-RESPONSES = {
-    "invalid_api_key" : flask.Response(
-        "Invalid API key.", status = 401
-    ),
-    "no_ingest_event" : flask.Response(
-        "No ingest event has been assigned for this route.", status = 500
-    )
-}
-
 def close_cryodb(e=None):
 
     db = g.pop("cryodb", None)
@@ -171,8 +162,8 @@ def create_app(test_config = None):
         # Validate API
         try:
             api_type, permissions = validate_api_key()
-        except cryodb.InvalidAPIKeyError:
-            return RESPONSES["invalid_api_key"]
+        except cryodb.InvalidAPIKeyError as e:
+            return CryodbErrorResponse(e, 401, "Invalid API key.")
         
         # Get DB object
         db = get_cryodb()
