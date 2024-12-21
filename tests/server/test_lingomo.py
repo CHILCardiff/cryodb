@@ -6,7 +6,7 @@ from .config import *
 def test_lingomo_ingest(cryodb_server_app, role):
 
     packet = None
-    with open("tests/server/lingomo_packet.json", "r") as fh:
+    with open("tests/lingomo_packet.json", "r") as fh:
         packet = json.load(fh)
 
     # Get raw data
@@ -59,7 +59,7 @@ def test_bad_packet(cryodb_server_client, role):
     assert response.status_code == 400 # bad request
 
     # Load actual packet
-    with open("tests/server/lingomo_packet.json", "r") as fh:
+    with open("tests/lingomo_packet.json", "r") as fh:
         packet = json.load(fh)
 
     # Modify packet to remove key
@@ -71,7 +71,7 @@ def test_bad_packet(cryodb_server_client, role):
 
 def test_invalid_ingest_event(cryodb_server_app):
 
-    with open("tests/server/lingomo_packet.json", "r") as fh:
+    with open("tests/lingomo_packet.json", "r") as fh:
         packet = json.load(fh)
     
     cryodb_server_app.config["LINGOMO_EVENT_ID"] = 9999
