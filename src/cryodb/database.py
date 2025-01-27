@@ -68,11 +68,16 @@ def sql_transaction(func):
     def self_wrapper(*args, **kwargs):
         # Get self from arguments
         self = args[0]
-        # get db connection and begin transaction
-        if self._CryoDatabase__is_sqlite():
-            self.cursor().execute("BEGIN TRANSACTION")
-        else:
-            self.connection.begin()
+        # Check if we are in transaction
+        local_in_transaction = self._CryoDatabase__in_transaction
+        if local_in_transaction:
+            # get db connection and begin transaction
+            if self._CryoDatabase__is_sqlite():
+                self.cursor().execute("BEGIN TRANSACTION")
+            else:
+                self.connection.begin()
+            # Set to being in transaction
+            self._CryoDatabase__in_transaction = True
         try:
             # run the function
             return_value = func(*args, **kwargs)
@@ -83,11 +88,13 @@ def sql_transaction(func):
             else:
                 self.commit()
             # and return from the function
+            self._CryoDatabase__in_transaction = local_in_transaction
             return return_value
         # if there's an exception
         except Exception as e:
             # roll back the transaction
             self.connection.rollback()
+            self._CryoDatabase__in_transaction = local_in_transaction
             # then re-raise the exception
             raise e
     return self_wrapper
@@ -352,6 +359,9 @@ class CryoDatabase:
         # Initialise ingest event id
         self.__ingest_event_id = None
         self.__ingest_event_obj = None
+        
+        # Initialise transaction status
+        self.__in_transaction = False
 
     def __is_sqlite(self):
         return isinstance(self.connection, sqlite3.Connection)

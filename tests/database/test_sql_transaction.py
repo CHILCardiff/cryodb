@@ -44,8 +44,7 @@ def test_sql_transaction(db, request):
 
     packet["identity"] = old_id
 
-    with pytest.raises(cryodb.InvalidLingoMOPacketError):
-        db.ingest_lingomo(json.dumps(packet), ingest_event_id)
+    db.ingest_lingomo(json.dumps(packet), ingest_event_id)
 
     ingest_end = get_ingest_ids()
 

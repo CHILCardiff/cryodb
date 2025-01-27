@@ -31,6 +31,7 @@ def db_sqlite():
     yield db
 
     db.disconnect()
+    
     # Cleanup sqlite database if it exists
     os.remove(TEST_SQLITE_NAME)
 
@@ -79,8 +80,13 @@ def db_mariadb():
 
     db.close()
 
-    return cryodb.connect(
+    cryodb_obj = cryodb.connect(
         user="root", 
         password="cryoparty", 
         database="mariadb_test"
     ) 
+
+    yield cryodb_obj
+
+    cryodb_obj.disconnect()
+

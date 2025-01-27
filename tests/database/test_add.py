@@ -49,7 +49,7 @@ def test_add_instrument(db, request):
     cursor.execute("SELECT * FROM `instrument_table` WHERE `instrument_id` = ?;", (instrument_id,))
 
     assert len(cursor.fetchall()) == 0
-
+    
 @pytest.mark.parametrize("db", ("db_mariadb", "db_sqlite"))
 def test_add_receiver(db, request):
 
@@ -84,11 +84,9 @@ def test_add_receiver(db, request):
 
     cursor.execute("DELETE FROM `receiver_table` WHERE `receiver_id` = ?;", (receiver_id_dec,))
 
-    db.commit()
-
     cursor.execute("SELECT * FROM `receiver_table` WHERE `receiver_id` = ? LIMIT 1;", (receiver_id_dec,))
 
     assert len(cursor.fetchall()) == 0
 
-def test_add_campaign():
-    pass
+# def test_add_campaign():
+#     pass
