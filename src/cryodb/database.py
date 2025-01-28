@@ -1209,7 +1209,7 @@ class CryoDatabase:
             parameters.append(deployment_id)
 
             try:
-                query = f"UPDATE `instrument_deployment_table` SET {",".join(query_string)} WHERE `deployment_id` = ?;"
+                query = f"UPDATE `instrument_deployment_table` SET {','.join(query_string)} WHERE `deployment_id` = ?;"
                 cursor.execute(query, parameters)
             except (mariadb.IntegrityError, sqlite3.IntegrityError) as e:
                 raise NoRecordInsertedError
