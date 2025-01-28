@@ -158,6 +158,11 @@ def create_app(test_config = None):
     ###########################################################################
     # Define API routes
     ###########################################################################
+    @cryodb_app.route("/alive", methods=["GET",])
+    def alive():
+        return CryodbResponse({"message" : "Hello, world!"})
+
+
     @cryodb_app.route("/instrument/<type>/list", methods=["GET",])
     def list_instruments(type):
 
