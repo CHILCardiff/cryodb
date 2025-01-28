@@ -8,9 +8,16 @@ from flask import request
 import importlib.resources
 import ipaddress
 import json
-import tomllib
+import sys
 # Import for ProxyFix if using a reverse proxy
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+# Versin dependent toml import
+if sys.version_info[1] > 11:
+    import tomllib
+else:
+    import toml
+
 
 # Import cryodb logger
 from ..__init__ import cryodb_logger
@@ -116,7 +123,11 @@ def create_app(test_config = None):
 
     # Create cryodb_app
     cryodb_app = flask.Flask("cryodb")
-    cryodb_app.config.from_file(importlib.resources.files("cryodb") / "default_settings.toml", load=tomllib.load, text=False)
+    if sys.version_info[1] > 11:
+        cryodb_app.config.from_file(importlib.resources.files("cryodb") / "default_settings.toml", load=tomllib.load, text=False)
+    else:
+        cryodb_app.config.from_file(importlib.resources.files("cryodb") / "default_settings.toml", load=toml.load, text=False)
+        
 
     # Load testing config if available
     if test_config is not None:
