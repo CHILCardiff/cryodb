@@ -53,7 +53,7 @@ def get_cryodb():
         # Select database based on config
         if current_app.config["DATABASE"] == "sqlite" : 
             
-            cryodb_logger.debug(f"Flask connecting to sqlite database at {current_app.config["CRYODB_SQLITE_PATH"]}")
+            cryodb_logger.debug(f"Flask connecting to sqlite database at {current_app.config['CRYODB_SQLITE_PATH']}")
             g.cryodb = cryodb.database.connect(
                 path = current_app.config["CRYODB_SQLITE_PATH"],
                 sqlite_create_if_not_found = current_app.config["CRYODB_SQLITE_CREATE"]
@@ -61,7 +61,7 @@ def get_cryodb():
 
         else:
 
-            cryodb_logger.debug(f"Flask connecting to MariaDB database '{current_app.config["CRYODB_DATABASE"]}' {current_app.config["CRYODB_USER"]}@{current_app.config["CRYODB_HOST"]}:{current_app.config["CRYODB_PORT"]}")
+            cryodb_logger.debug(f"Flask connecting to MariaDB database '{current_app.config['CRYODB_DATABASE']}' {current_app.config['CRYODB_USER']}@{current_app.config['CRYODB_HOST']}:{current_app.config['CRYODB_PORT']}")
             g.cryodb = cryodb.database.connect(
                 host = current_app.config["CRYODB_HOST"],
                 user = current_app.config["CRYODB_USER"],
